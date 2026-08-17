@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+*.db
+.DS_Store
+demo_galaxy.html
+sample_data/galaxy_demo.json

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mindgalaxy"
+version = "1.0.0"
+description = "Turn your journal, notes, or ideas into a living, navigable 3D galaxy of your own thinking — fully local, no API keys, no external AI service."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Kirit Reddy" }]
+keywords = ["journal", "nlp", "visualization", "three.js", "tf-idf", "clustering", "personal-knowledge"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing :: Linguistic",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+    "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mindgalaxy = "mindgalaxy.cli:main"
+
+[tool.setuptools]
+packages = ["mindgalaxy"]
+
+[tool.setuptools.package-data]
+mindgalaxy = ["vendor/*.js", "templates/*.html"]

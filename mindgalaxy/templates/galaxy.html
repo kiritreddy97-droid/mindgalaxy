@@ -141,6 +141,27 @@ __THREE_JS_TAG__
   #empty-state h2 { color: var(--text); font-weight: 500; margin: 0; }
   #empty-state code { background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 6px; color: var(--accent); }
 
+  #composer-wrap {
+    bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: stretch;
+    width: min(560px, calc(100vw - 260px)); z-index: 20;
+  }
+  #composer { display: flex; align-items: flex-end; gap: 8px; padding: 10px 10px 10px 16px; }
+  #composer textarea {
+    flex: 1; resize: none; background: transparent; border: none; outline: none;
+    color: var(--text); font: inherit; font-size: 13px; line-height: 1.5;
+    max-height: 120px; padding: 6px 0;
+  }
+  #composer textarea::placeholder { color: var(--muted); }
+  #composer button {
+    background: var(--accent); color: #0b0e21; border: none; border-radius: 10px;
+    padding: 9px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer; flex-shrink: 0;
+    transition: opacity 0.15s, transform 0.15s;
+  }
+  #composer button:hover:not(:disabled) { transform: translateY(-1px); }
+  #composer button:disabled { opacity: 0.5; cursor: default; }
+  #composer-error { display: none; color: #ff9a9a; font-size: 11.5px; padding: 0 16px 10px; }
+
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
 </style>
@@ -185,6 +206,14 @@ __THREE_JS_TAG__
   <span id="replay-label">Replay formation</span>
 </div>
 
+<div class="hud panel" id="composer-wrap">
+  <div id="composer">
+    <textarea id="composer-input" rows="1" placeholder="Add a thought… (Enter to add, Shift+Enter for a new line)"></textarea>
+    <button id="composer-submit">Add</button>
+  </div>
+  <div id="composer-error"></div>
+</div>
+
 <div class="hud panel" id="detail-panel">
   <button class="close-btn" id="detail-close">✕</button>
   <div id="detail-cluster"></div>
@@ -219,6 +248,67 @@ __THREE_JS_TAG__
   } else {
     fetch("/api/stars").then(r => r.json()).then(boot).catch(() => boot(null));
   }
+
+  // ---------------------------------------------------------------
+  // Add-a-thought composer (server mode only -- a standalone export
+  // has no backend to write new entries to)
+  // ---------------------------------------------------------------
+  (function initComposer() {
+    const wrap = document.getElementById("composer-wrap");
+    if (MODE !== "server") {
+      wrap.style.display = "none";
+      return;
+    }
+    const input = document.getElementById("composer-input");
+    const button = document.getElementById("composer-submit");
+    const errorEl = document.getElementById("composer-error");
+
+    function autoGrow() {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 120) + "px";
+    }
+    input.addEventListener("input", autoGrow);
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = "block";
+    }
+    function clearError() {
+      errorEl.style.display = "none";
+    }
+
+    async function submit() {
+      const text = input.value.trim();
+      if (!text) return;
+      button.disabled = true;
+      input.disabled = true;
+      clearError();
+      try {
+        const res = await fetch("/api/entries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+        // Reload so boot() re-fetches /api/stars and the new star is
+        // positioned by a fresh recomputation of the whole galaxy.
+        window.location.reload();
+      } catch (err) {
+        showError(err.message || "Couldn't add that thought — try again.");
+        button.disabled = false;
+        input.disabled = false;
+      }
+    }
+
+    button.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+      }
+    });
+  })();
 
   // ---------------------------------------------------------------
   // Color helpers

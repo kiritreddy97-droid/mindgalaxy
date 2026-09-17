@@ -2,12 +2,18 @@
 mindgalaxy.storage
 ===================
 
-Minimal SQLite-backed storage for journal entries. No server, no external
-database — a single portable .db file.
+SQLite-backed storage for journal entries. By default this is a single
+portable .db file (no server, no external database). When the
+TURSO_DATABASE_URL environment variable is set, entries are stored in a
+Turso (libSQL) database instead -- same schema, same SQL, just reachable
+over the network -- which is what makes persistence possible on a
+stateless deployment like Vercel, where the local filesystem does not
+survive between invocations.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import os
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -24,15 +30,32 @@ CREATE TABLE IF NOT EXISTS entries (
 """
 
 
+def _connect(db_path: Path | str):
+    """
+    Open a connection to either a local SQLite file or, if TURSO_DATABASE_URL
+    is set, a remote Turso (libSQL) database. Both expose the same
+    sqlite3-style DB-API (connect / execute / commit / cursor.lastrowid), so
+    the rest of Storage doesn't need to know which one it's talking to.
+    """
+    turso_url = os.environ.get("TURSO_DATABASE_URL")
+    if turso_url:
+        import libsql
+
+        return libsql.connect(turso_url, auth_token=os.environ.get("TURSO_AUTH_TOKEN"))
+
+    import sqlite3
+
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(str(path))
+
+
 class Storage:
-    """Thin wrapper around a SQLite database of journal entries."""
+    """Thin wrapper around a SQLite (or Turso/libSQL) database of journal entries."""
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH):
-        import sqlite3
-
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn = _connect(db_path)
         self.conn.execute(_SCHEMA)
         self.conn.commit()
 

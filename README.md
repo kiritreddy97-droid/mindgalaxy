@@ -133,9 +133,31 @@ pip install pytest
 pytest tests/ -v
 ```
 
+## Deploying to Vercel
+
+`mindgalaxy serve` is built around a single local SQLite file, and the web page it serves is a pure viewer — the only way to add an entry is the CLI (`mindgalaxy add "..."`). Neither of those fits a serverless deployment as-is:
+
+- **No local disk.** `index.py` (the Vercel entrypoint) points storage at `/tmp`, the one writable path in a serverless function — but `/tmp` does not persist between invocations, so anything added disappears again almost immediately, and different instances of your function don't share it either.
+- **No way to add a thought from the browser.** The galaxy page only ever *read* data; there was no compose box wired to the existing `POST /api/entries` endpoint.
+
+This repo now includes a fix for both:
+
+1. The galaxy page has an "Add a thought" box at the bottom (server mode only — a standalone export has no backend to write to). It posts to `/api/entries` and reloads so the new star gets folded into a freshly recomputed galaxy.
+2. `mindgalaxy/storage.py` will use [Turso](https://turso.tech) (a hosted, SQLite-compatible database with a free tier) instead of a local file whenever `TURSO_DATABASE_URL` is set — which is what makes entries survive across serverless invocations.
+
+To wire up persistence:
+
+1. Create a free Turso database (via the [Turso dashboard](https://turso.tech) or `turso db create mindgalaxy`) and grab its database URL and an auth token.
+2. In your Vercel project → **Settings → Environment Variables**, add:
+   - `TURSO_DATABASE_URL`
+   - `TURSO_AUTH_TOKEN`
+3. Redeploy. `mindgalaxy` will create the `entries` table in Turso automatically on first use, exactly like it does locally.
+
+Without those two variables set, the site still works, but entries added through the web UI will vanish on the next cold start — fine for a quick demo, not for real journaling.
+
 ## Privacy
 
-Nothing here calls out to the network at runtime. Your entries live in a local SQLite file. Exported HTML snapshots are single files with the visualization library embedded inline — open one on a plane, no connection required.
+Nothing here calls out to the network at runtime by default. Your entries live in a local SQLite file. Exported HTML snapshots are single files with the visualization library embedded inline — open one on a plane, no connection required. The one exception is an optional Vercel deployment configured with Turso (see above), where entries are written to that hosted database instead of a local file so they can persist across serverless requests.
 
 ## License
 

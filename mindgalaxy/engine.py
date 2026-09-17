@@ -115,7 +115,7 @@ def _cluster_names(vectorizer: TfidfVectorizer, dense_tfidf: np.ndarray,
         distinctiveness = in_mean - out_mean
         top_idx = distinctiveness.argsort()[::-1][:top_n]
         top_terms = [terms[i] for i in top_idx if terms[i].strip() and distinctiveness[i] > 0]
-        names[int(c)] = " · ".join(w.title() for w in top_terms]) or f"Theme {c}"
+        names[int(c)] = " · ".join(w.title() for w in top_terms) or f"Theme {c}"
     return names
 
 

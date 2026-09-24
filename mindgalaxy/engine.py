@@ -35,6 +35,8 @@ from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.metrics.pairwise import cosine_similarity
 
+from .knowledge import attach_knowledge
+
 # On small or repetitive inputs, k-means is sometimes asked for more
 # clusters than there are genuinely distinct points -- harmless here (it
 # just settles for fewer clusters than requested), so the warning is
@@ -203,7 +205,7 @@ def build_galaxy(
     now = now or _dt.datetime.utcnow()
     n = len(entries)
     if n == 0:
-        return {"stars": [], "edges": [], "clusters": {}, "generated_at": now.isoformat(), "count": 0}
+        return {"stars": [], "edges": [], "clusters": {}, "topics": {}, "generated_at": now.isoformat(), "count": 0}
 
     if n == 1:
         # A single star has nothing to be positioned relative to, clustered
@@ -218,11 +220,11 @@ def build_galaxy(
             "cluster_status": "active", "novelty": 0.0, "brightness": float(brightness),
             "magnitude": 1.0, "is_shooting_star": False,
         }
-        return {
+        return attach_knowledge({
             "stars": [star], "edges": [],
             "clusters": {"0": {"name": name, "count": 1, "status": "active"}},
             "generated_at": now.isoformat(), "count": 1,
-        }
+        })
 
     texts = [e.text for e in entries]
 
@@ -341,10 +343,11 @@ def build_galaxy(
         for c in sorted(set(labels.tolist()))
     }
 
-    return {
+    # --- knowledge: gas clouds of related facts + topic interconnections --
+    return attach_knowledge({
         "stars": stars,
         "edges": edges,
         "clusters": clusters_out,
         "generated_at": now.isoformat(),
         "count": n,
-    }
+    })

@@ -127,7 +127,7 @@ def test_edges_reference_valid_star_indices():
         assert 0 <= edge["source"] < n
         assert 0 <= edge["target"] < n
         assert edge["source"] != edge["target"]
-        assert edge["type"] in ("constellation", "bridge")
+        assert edge["type"] in ("constellation", "bridge", "topic")
         assert 0.0 <= edge["weight"] <= 1.0
 
 

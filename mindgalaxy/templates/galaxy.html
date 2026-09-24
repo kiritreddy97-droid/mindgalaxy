@@ -103,10 +103,57 @@ __THREE_JS_TAG__
   #replay-btn:active { transform: translateY(0); }
 
   #detail-panel {
-    top: 66px; right: 26px; width: 320px; padding: 20px 20px 18px;
-    transform: translateX(370px); opacity: 0; transition: transform 0.35s ease, opacity 0.35s ease;
+    top: 66px; right: 26px; width: min(380px, calc(100vw - 32px)); padding: 20px 20px 18px;
+    max-height: calc(100vh - 170px); overflow-y: auto; z-index: 30;
+    transform: translateX(430px); opacity: 0; pointer-events: none;
+    transition: transform 0.35s ease, opacity 0.35s ease;
   }
-  #detail-panel.open { transform: translateX(0); opacity: 1; }
+  #detail-panel.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
+
+  /* ---- knowledge "gas cloud" panel ---- */
+  .kn-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .kn-heading { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 9px; display: flex; align-items: center; gap: 8px; }
+  .kn-heading .spinner-sm { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.2); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+  .kn-topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .kn-topic { font-size: 11.5px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,0.04); }
+  .kn-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .kn-tab {
+    font: inherit; font-size: 11.5px; padding: 5px 11px; border-radius: 20px; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 6px; transition: background 0.15s, color 0.15s;
+  }
+  .kn-tab .dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+  .kn-tab:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  .kn-tab.active { color: var(--text); background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
+  .kn-blurb { font-size: 11px; color: var(--muted); margin: -4px 0 8px; }
+  .kn-item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: rgba(255,255,255,0.025); }
+  .kn-item.flash { box-shadow: 0 0 0 1px var(--accent); }
+  .kn-item-name { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .kn-origin { font-size: 11.5px; color: var(--accent); margin-top: 3px; }
+  .kn-summary { font-size: 12.5px; color: #c9cce8; line-height: 1.55; margin-top: 5px; }
+  .kn-attrs { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin-top: 8px; font-size: 12px; }
+  .kn-attrs dt { color: var(--muted); }
+  .kn-attrs dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+  .kn-more { font: inherit; font-size: 11.5px; margin-top: 8px; padding: 0; background: none; border: none; color: var(--accent); cursor: pointer; }
+  .kn-more:hover { text-decoration: underline; }
+  .kn-detail { display: none; margin-top: 8px; }
+  .kn-item.expanded .kn-detail { display: block; }
+  .kn-sub { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin: 10px 0 5px; font-weight: 600; }
+  .kn-detail ul, .kn-detail ol { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.55; color: #d7d9f2; }
+  .kn-detail li { margin-bottom: 3px; }
+  .kn-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 6px; }
+  .kn-link { color: var(--accent); font-size: 12px; text-decoration: none; }
+  .kn-link:hover { text-decoration: underline; }
+  .kn-math { border: 1px solid rgba(142,162,255,0.35); border-radius: 10px; padding: 12px; background: rgba(142,162,255,0.07); }
+  .kn-math .answer { font-size: 18px; font-weight: 600; color: #fff; margin: 4px 0 8px; }
+  .kn-math ol { margin: 0; padding-left: 18px; font-size: 12.5px; color: #d7d9f2; line-height: 1.6; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .kn-conn { display: block; width: 100%; text-align: left; font: inherit; cursor: pointer; background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; margin-bottom: 7px; color: var(--text); }
+  .kn-conn:hover { background: rgba(255,255,255,0.07); }
+  .kn-conn .t { font-size: 12.5px; }
+  .kn-conn .r { font-size: 11px; color: #7ff0cf; margin-top: 3px; }
+  .kn-conn .r.words { color: var(--muted); }
+  .kn-empty { font-size: 12px; color: var(--muted); }
+
   #detail-panel .close-btn {
     position: absolute; top: 12px; right: 14px; cursor: pointer; color: var(--muted);
     font-size: 18px; line-height: 1; background: none; border: none;
@@ -164,6 +211,18 @@ __THREE_JS_TAG__
 
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+  @media (max-width: 720px) {
+    #header .subtitle { display: none; }
+    #search-box { position: fixed; top: 64px; left: 16px; right: 16px; }
+    #search-box input { width: 100%; }
+    #legend { top: 112px; left: 16px; width: 190px; max-height: 26vh; }
+    #controls-hint { display: none; }
+    #replay-btn { bottom: 92px; right: 16px; }
+    #composer-wrap { width: calc(100vw - 32px); bottom: 16px; }
+    #detail-panel { top: auto; bottom: 84px; right: 16px; max-height: 46vh; }
+    #header { left: 16px; right: 16px; top: 16px; }
+    body.panel-open #legend { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -171,7 +230,7 @@ __THREE_JS_TAG__
 <div id="loading"><div class="spinner"></div><div>Charting your galaxy…</div></div>
 <div id="empty-state">
   <h2>Your galaxy is empty</h2>
-  <div>Add your first thought with <code>mindgalaxy add "..."</code></div>
+  <div id="empty-hint">Add your first thought with <code>mindgalaxy add "..."</code></div>
 </div>
 
 <div id="canvas-holder"></div>
@@ -181,7 +240,7 @@ __THREE_JS_TAG__
   <div class="title-row">
     <h1 id="page-title">__GALAXY_TITLE__</h1>
   </div>
-  <div class="subtitle">A living map of your own thinking — every star is a thought, positioned by what it means, not when you wrote it. Nearby stars think alike. Lines are conceptual kinship. Gold stars are ideas nothing else in your galaxy resembles yet.</div>
+  <div class="subtitle">A living map of your own thinking — every star is a thought, positioned by what it means, not when you wrote it. Nearby stars think alike. Lines are conceptual kinship; teal dashed lines link thoughts whose topics are related. Each star glows with a gas cloud of knowledge about what it's about — click one to explore. Gold stars are ideas nothing else in your galaxy resembles yet.</div>
   <div id="stats-line"></div>
 </div>
 
@@ -220,6 +279,8 @@ __THREE_JS_TAG__
   <div id="detail-date"></div>
   <div id="detail-text"></div>
   <div id="detail-flags"></div>
+  <div id="detail-knowledge"></div>
+  <div id="detail-links"></div>
 </div>
 
 <script id="galaxy-data" type="application/json">__GALAXY_DATA__</script>
@@ -235,6 +296,10 @@ __THREE_JS_TAG__
     document.getElementById("loading").style.display = "none";
     if (!data || !data.stars || data.stars.length === 0) {
       document.getElementById("empty-state").style.display = "flex";
+      if (MODE === "server") {
+        document.getElementById("empty-hint").textContent =
+          "Type your first thought below — try “I love to cook”, “I need a watch” or “solve 2x + 3 = 11”.";
+      }
       return;
     }
     initGalaxy(data);
@@ -292,8 +357,9 @@ __THREE_JS_TAG__
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
         // Reload so boot() re-fetches /api/stars and the new star is
-        // positioned by a fresh recomputation of the whole galaxy.
-        window.location.reload();
+        // positioned by a fresh recomputation of the whole galaxy -- then
+        // fly straight to it so its gas cloud is the first thing you see.
+        window.location.href = window.location.pathname + "?focus=" + encodeURIComponent(body.id);
       } catch (err) {
         showError(err.message || "Couldn't add that thought — try again.");
         button.disabled = false;
@@ -412,7 +478,7 @@ __THREE_JS_TAG__
       starMeshes.push(sprite);
     });
 
-    // ---- constellation lines ----
+    // ---- constellation + topic lines ----
     const lineGroup = new THREE.Group();
     edges.forEach(e => {
       const a = stars[e.source], b = stars[e.target];
@@ -420,40 +486,210 @@ __THREE_JS_TAG__
         new THREE.Vector3(a.x, a.y, a.z),
         new THREE.Vector3(b.x, b.y, b.z),
       ]);
+      const isTopic = e.type === "topic";
       const isBridge = e.type === "bridge";
-      const mat = new THREE.LineBasicMaterial({
-        color: isBridge ? 0xffe3a3 : 0x8ea2ff,
-        transparent: true,
-        opacity: Math.min(0.55, 0.12 + e.weight * (isBridge ? 0.5 : 0.35)),
-      });
+      let mat;
+      if (isTopic) {
+        mat = new THREE.LineDashedMaterial({ color: 0x5ff0c8, dashSize: 1.4, gapSize: 0.9, transparent: true, opacity: 0.5 });
+      } else {
+        mat = new THREE.LineBasicMaterial({
+          color: isBridge ? 0xffe3a3 : 0x8ea2ff,
+          transparent: true,
+          opacity: Math.min(0.55, 0.12 + e.weight * (isBridge ? 0.5 : 0.35)),
+        });
+      }
       const line = new THREE.Line(geo, mat);
+      if (isTopic) line.computeLineDistances();
       line.userData = { clusterA: a.cluster, clusterB: b.cluster, sourceIdx: e.source, targetIdx: e.target, baseOpacity: mat.opacity };
       lineGroup.add(line);
     });
     scene.add(lineGroup);
 
+    // ---------------------------------------------------------------
+    // Knowledge gas clouds: one coloured nebula per facet of what the
+    // thought is about (cuisines, kinds of milk, cars by speed, ...)
+    // ---------------------------------------------------------------
+    const topics = data.topics || {};
+    const wikiCache = {};
+    const clouds = new Array(stars.length).fill(null);
+    const cloudBase = stars.length <= 3 ? 0.85 : stars.length <= 12 ? 0.6 : 0.4;
+
+    function hueFor(str) { let h = 7; for (const ch of str) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; }
+    function facetHsl(topicId, fi) { return `hsl(${((hueFor(topicId) + fi * 57) % 360).toFixed(1)}, 78%, 66%)`; }
+    function fib(i, n) {
+      const y = n === 1 ? 0.3 : 1 - ((i + 0.5) / n) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const th = i * 2.399963 + 0.6;
+      return new THREE.Vector3(Math.cos(th) * r, y, Math.sin(th) * r);
+    }
+    function gauss() { return (Math.random() + Math.random() + Math.random() - 1.5) / 1.5; }
+
+    function facetsForStar(star) {
+      const out = [];
+      if (star.math) out.push({ topicId: "maths", topicLabel: "Maths", facet: { name: "Solution", items: [] }, math: star.math });
+      (star.topics || []).forEach((tid, ti) => {
+        const t = topics[tid];
+        if (!t) return;
+        const limit = ti === 0 ? 8 : 3;
+        t.facets.slice(0, limit).forEach(f => out.push({ topicId: tid, topicLabel: t.label, facet: f }));
+      });
+      const wiki = wikiCache[star.id];
+      if (!out.length && wiki && wiki.facets) {
+        wiki.facets.forEach(f => out.push({ topicId: "wikipedia", topicLabel: "Wikipedia", facet: f }));
+      }
+      return out.slice(0, 10);
+    }
+
+    function disposeObject(obj) {
+      obj.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) { if (o.material.map && o.material.map !== glowTex) o.material.map.dispose(); o.material.dispose(); }
+      });
+    }
+
+    function buildCloud(i) {
+      const star = stars[i];
+      if (clouds[i]) { scene.remove(clouds[i].group); disposeObject(clouds[i].group); clouds[i] = null; }
+      const entries = facetsForStar(star);
+      if (!entries.length) return null;
+      const group = new THREE.Group();
+      group.position.set(star.x, star.y, star.z);
+      const n = entries.length, R = 6.5 + n * 0.35, per = 110, halo = 160;
+      const total = n * per + halo;
+      const pos = new Float32Array(total * 3), col = new Float32Array(total * 3);
+      const centers = [];
+      const c = new THREE.Color();
+      let k = 0;
+      entries.forEach((en, fi) => {
+        en.color = facetHsl(en.topicId, fi);
+        c.setHex(hslToHex(en.color));
+        const center = fib(fi, n).multiplyScalar(R);
+        centers.push(center);
+        for (let p = 0; p < per; p++) {
+          // a wisp streaming out from the star into a billowing blob
+          const t = Math.pow(Math.random(), 0.55);
+          const s = 0.6 + 1.9 * t;
+          pos[k * 3] = center.x * t + gauss() * s;
+          pos[k * 3 + 1] = center.y * t + gauss() * s;
+          pos[k * 3 + 2] = center.z * t + gauss() * s;
+          const fade = 0.55 + 0.45 * t;
+          col[k * 3] = c.r * fade; col[k * 3 + 1] = c.g * fade; col[k * 3 + 2] = c.b * fade;
+          k++;
+        }
+      });
+      for (let p = 0; p < halo; p++) {
+        const d = fib(p, halo).multiplyScalar(1.6 + Math.random() * 3.2);
+        pos[k * 3] = d.x; pos[k * 3 + 1] = d.y; pos[k * 3 + 2] = d.z;
+        col[k * 3] = 0.35; col[k * 3 + 1] = 0.4; col[k * 3 + 2] = 0.7;
+        k++;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      const mat = new THREE.PointsMaterial({
+        size: 1.5, map: glowTex, vertexColors: true, transparent: true, opacity: 0.5,
+        depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+      });
+      group.add(new THREE.Points(geo, mat));
+      group.scale.setScalar(cloudBase);
+      group.userData = { labels: [], spin: 0.0012 + Math.random() * 0.0012, targetScale: cloudBase };
+      scene.add(group);
+      clouds[i] = { group, entries, centers };
+      return clouds[i];
+    }
+    stars.forEach((s, i) => buildCloud(i));
+
+    // ---- floating text labels (only for the selected star) ----
+    function truncate(t, n) { return t.length > n ? t.slice(0, n - 1) + "…" : t; }
+    function makeLabel(text, color, big) {
+      const fontPx = big ? 30 : 23;
+      const font = `${big ? 600 : 500} ${fontPx}px "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
+      const cnv = document.createElement("canvas");
+      const ctx = cnv.getContext("2d");
+      ctx.font = font;
+      const w = Math.ceil(ctx.measureText(text).width + fontPx * 1.5);
+      const h = Math.ceil(fontPx * 1.9);
+      cnv.width = w; cnv.height = h;
+      const r = h / 2;
+      ctx.beginPath();
+      ctx.moveTo(r, 1); ctx.lineTo(w - r, 1); ctx.arc(w - r, r, r - 1, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(r, h - 1); ctx.arc(r, r, r - 1, Math.PI / 2, Math.PI * 1.5); ctx.closePath();
+      ctx.fillStyle = "rgba(8, 10, 28, 0.82)"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = color; ctx.stroke();
+      ctx.font = font; ctx.textBaseline = "middle";
+      ctx.fillStyle = big ? "#ffffff" : "#dfe3ff";
+      ctx.fillText(text, fontPx * 0.75, h / 2 + 1);
+      const tex = new THREE.CanvasTexture(cnv);
+      tex.minFilter = THREE.LinearFilter;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+      const sp = new THREE.Sprite(mat);
+      const k = (big ? 0.042 : 0.034) * (window.innerWidth <= 720 ? 0.62 : 1);
+      sp.scale.set(w * k, h * k, 1);
+      sp.renderOrder = 10;
+      return sp;
+    }
+
+    let selected = -1, activeFacet = 0;
+    function clearLabels(i) {
+      const cl = clouds[i];
+      if (!cl) return;
+      cl.group.userData.labels.forEach(l => { l.parent && l.parent.remove(l); disposeObject(l); });
+      cl.group.userData.labels = [];
+    }
+    function showLabels(i) {
+      clearLabels(i);
+      const cl = clouds[i];
+      if (!cl) return;
+      cl.entries.forEach((en, fi) => {
+        const lab = makeLabel(en.facet.name, en.color, true);
+        lab.position.copy(cl.centers[fi]).multiplyScalar(1.25);
+        lab.userData = { kind: "facet", facetIdx: fi };
+        cl.group.add(lab); cl.group.userData.labels.push(lab);
+        if (fi !== activeFacet) return;
+        const items = en.math ? [{ name: en.math.answer }] : en.facet.items.slice(0, 4);
+        // item labels hang in a screen-aligned list under their facet label
+        // (positioned every frame in the render loop, so they never tangle)
+        items.forEach((it, ii) => {
+          const l2 = makeLabel(truncate(it.name, 30), en.color, false);
+          l2.userData = { kind: "item", facetIdx: fi, itemIdx: ii, anchor: lab, slot: ii };
+          scene.add(l2); cl.group.userData.labels.push(l2);
+        });
+      });
+    }
+
     // ---- camera controls (custom, dependency-free orbit) ----
     let radius = 130, theta = 1.15, phi = 1.15; // spherical: theta=azimuth-ish, phi=polar
     const target = new THREE.Vector3(0, 0, 0);
+    const focusTarget = new THREE.Vector3(0, 0, 0);
+    let focusRadius = null;
     function updateCamera() {
       const sinPhi = Math.sin(phi);
       camera.position.set(
-        radius * sinPhi * Math.cos(theta),
-        radius * Math.cos(phi),
-        radius * sinPhi * Math.sin(theta)
+        target.x + radius * sinPhi * Math.cos(theta),
+        target.y + radius * Math.cos(phi),
+        target.z + radius * sinPhi * Math.sin(theta)
       );
       camera.lookAt(target);
     }
+    function flyTo(vec, r) { focusTarget.copy(vec); focusRadius = r; }
+    // On phones the detail panel covers the bottom half, so nudge the view
+    // down while a star is open to keep its gas cloud visible above the panel.
+    function applyViewOffset() {
+      const w = window.innerWidth, h = window.innerHeight;
+      if (w <= 720 && selected >= 0) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
+      else camera.clearViewOffset();
+    }
     updateCamera();
 
-    let dragging = false, lastX = 0, lastY = 0, autoRotate = true;
+    let dragging = false, lastX = 0, lastY = 0, autoRotate = true, moved = 0;
     const dom = renderer.domElement;
     dom.style.cursor = "grab";
 
-    function onDown(x, y) { dragging = true; lastX = x; lastY = y; autoRotate = false; dom.style.cursor = "grabbing"; }
+    function onDown(x, y) { dragging = true; moved = 0; lastX = x; lastY = y; autoRotate = false; dom.style.cursor = "grabbing"; }
     function onMove(x, y) {
       if (!dragging) return;
       const dx = x - lastX, dy = y - lastY;
+      moved += Math.abs(dx) + Math.abs(dy);
       theta -= dx * 0.0045;
       phi = Math.min(Math.PI - 0.08, Math.max(0.08, phi - dy * 0.0045));
       lastX = x; lastY = y;
@@ -469,12 +705,14 @@ __THREE_JS_TAG__
     dom.addEventListener("touchend", onUp);
     dom.addEventListener("wheel", e => {
       e.preventDefault();
-      radius = Math.min(420, Math.max(35, radius + e.deltaY * 0.12));
+      focusRadius = null;
+      radius = Math.min(420, Math.max(12, radius + e.deltaY * 0.12));
     }, { passive: false });
 
     window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      applyViewOffset();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
@@ -484,34 +722,268 @@ __THREE_JS_TAG__
     const mouse = new THREE.Vector2();
     let hovered = null;
 
-    function pick(clientX, clientY) {
+    function setMouse(clientX, clientY) {
       const rect = dom.getBoundingClientRect();
       mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
+    }
+    function pickLabel(clientX, clientY) {
+      if (selected < 0 || !clouds[selected]) return null;
+      setMouse(clientX, clientY);
+      const hits = raycaster.intersectObjects(clouds[selected].group.userData.labels);
+      return hits.length ? hits[0].object : null;
+    }
+    function pick(clientX, clientY) {
+      setMouse(clientX, clientY);
       const hits = raycaster.intersectObjects(starMeshes);
       return hits.length ? hits[0].object : null;
     }
 
     dom.addEventListener("mousemove", e => {
       if (dragging) return;
-      const hit = pick(e.clientX, e.clientY);
+      const lab = pickLabel(e.clientX, e.clientY);
+      const hit = lab ? null : pick(e.clientX, e.clientY);
       if (hit !== hovered) {
         if (hovered) hovered.scale.set(hovered.userData.baseScale, hovered.userData.baseScale, 1);
         if (hit) hit.scale.set(hit.userData.baseScale * 1.35, hit.userData.baseScale * 1.35, 1);
-        dom.style.cursor = hit ? "pointer" : (dragging ? "grabbing" : "grab");
         hovered = hit;
       }
+      dom.style.cursor = (hit || lab) ? "pointer" : "grab";
     });
 
     dom.addEventListener("click", e => {
+      if (moved > 6) return; // that was a drag, not a click
+      const lab = pickLabel(e.clientX, e.clientY);
+      if (lab) {
+        setActiveFacet(lab.userData.facetIdx, lab.userData.kind === "item" ? lab.userData.itemIdx : null);
+        return;
+      }
       const hit = pick(e.clientX, e.clientY);
-      if (hit) showDetail(hit.userData.star);
+      if (hit) selectStar(hit.userData.index);
     });
+
+    // ---- selection ----
+    function highlightEdges(i) {
+      lineGroup.children.forEach(line => {
+        const touches = line.userData.sourceIdx === i || line.userData.targetIdx === i;
+        line.material.opacity = touches ? Math.min(0.95, line.userData.baseOpacity + 0.4) : line.userData.baseOpacity * 0.5;
+      });
+    }
+    function selectStar(i) {
+      if (selected >= 0 && selected !== i) {
+        clearLabels(selected);
+        if (clouds[selected]) clouds[selected].group.userData.targetScale = cloudBase;
+      }
+      selected = i;
+      activeFacet = 0;
+      autoRotate = true;
+      const s = stars[i];
+      const cl = clouds[i];
+      if (cl) { cl.group.userData.targetScale = 1; cl.group.visible = true; showLabels(i); }
+      flyTo(new THREE.Vector3(s.x, s.y, s.z), cl ? 44 : 60);
+      showDetail(s, i);
+      highlightEdges(i);
+      applyViewOffset();
+      if (!cl && !s.math && !(s.topics || []).length) loadWiki(i);
+    }
+    function deselect() {
+      if (selected >= 0) {
+        clearLabels(selected);
+        if (clouds[selected]) clouds[selected].group.userData.targetScale = cloudBase;
+      }
+      selected = -1;
+      applyViewOffset();
+      detailPanel.classList.remove("open");
+      document.body.classList.remove("panel-open");
+      flyTo(new THREE.Vector3(0, 0, 0), 130);
+      applyVisibility(document.getElementById("search-input").value);
+    }
+    function setActiveFacet(fi, itemIdx) {
+      activeFacet = fi;
+      if (selected < 0) return;
+      showLabels(selected);
+      renderKnowledge(selected);
+      if (itemIdx != null) {
+        const card = document.querySelector(`#detail-knowledge .kn-item[data-idx="${itemIdx}"]`);
+        if (card) {
+          card.classList.add("expanded", "flash");
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          setTimeout(() => card.classList.remove("flash"), 1400);
+        }
+      }
+    }
 
     // ---- detail panel ----
     const detailPanel = document.getElementById("detail-panel");
-    function showDetail(star) {
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function stripHtml(html) {
+      const d = new DOMParser().parseFromString(html || "", "text/html");
+      return (d.body.textContent || "").trim();
+    }
+    function kvList(obj, skip) {
+      const dl = el("dl", "kn-attrs");
+      Object.entries(obj).forEach(([k, v]) => {
+        if (skip && skip.includes(k)) return;
+        dl.appendChild(el("dt", null, k));
+        dl.appendChild(el("dd", null, v));
+      });
+      return dl;
+    }
+
+    function renderItem(it, ii) {
+      const card = el("div", "kn-item");
+      card.dataset.idx = ii;
+      card.appendChild(el("div", "kn-item-name", it.name));
+      if (it.origin) card.appendChild(el("div", "kn-origin", it.origin));
+      if (it.summary) card.appendChild(el("div", "kn-summary", it.summary));
+      if (it.attrs) card.appendChild(kvList(it.attrs));
+      if (it.link) {
+        const a = el("a", "kn-link", "Read more on Wikipedia →");
+        a.href = it.link; a.target = "_blank"; a.rel = "noopener noreferrer";
+        const wrap = el("div"); wrap.style.marginTop = "6px"; wrap.appendChild(a);
+        card.appendChild(wrap);
+      }
+      const hasDetail = it.nutrition || it.ingredients || it.steps;
+      if (hasDetail) {
+        const parts = [];
+        if (it.steps) parts.push((it.steps_label || "Recipe").toLowerCase());
+        if (it.ingredients) parts.push("ingredients");
+        if (it.nutrition) parts.push("nutrition");
+        const btn = el("button", "kn-more", "Show " + parts.join(", "));
+        btn.addEventListener("click", () => {
+          card.classList.toggle("expanded");
+          btn.textContent = (card.classList.contains("expanded") ? "Hide " : "Show ") + parts.join(", ");
+        });
+        card.appendChild(btn);
+        const det = el("div", "kn-detail");
+        if (it.nutrition) {
+          det.appendChild(el("div", "kn-sub", "Nutrition (approx., " + (it.nutrition.Basis || "per serving") + ")"));
+          det.appendChild(kvList(it.nutrition, ["Basis"]));
+        }
+        if (it.ingredients) {
+          det.appendChild(el("div", "kn-sub", "Ingredients"));
+          const ul = el("ul");
+          it.ingredients.forEach(x => ul.appendChild(el("li", null, x)));
+          det.appendChild(ul);
+        }
+        if (it.steps) {
+          det.appendChild(el("div", "kn-sub", it.steps_label || "Recipe"));
+          const ol = el("ol");
+          it.steps.forEach(x => ol.appendChild(el("li", null, x)));
+          det.appendChild(ol);
+        }
+        card.appendChild(det);
+      }
+      return card;
+    }
+
+    function renderKnowledge(i) {
+      const s = stars[i];
+      const box = document.getElementById("detail-knowledge");
+      box.innerHTML = "";
+      const cl = clouds[i];
+      const entries = cl ? cl.entries : [];
+      const sec = el("div", "kn-section");
+      const head = el("div", "kn-heading", "Gas cloud");
+      sec.appendChild(head);
+      if (!entries.length) {
+        const wiki = wikiCache[s.id];
+        if (wiki && wiki.loading) {
+          head.appendChild(el("span", "spinner-sm"));
+          sec.appendChild(el("div", "kn-empty", "Looking this thought up on Wikipedia…"));
+        } else if (wiki && wiki.error) {
+          sec.appendChild(el("div", "kn-empty", wiki.offline
+            ? "You're offline — connect to explore this thought on Wikipedia."
+            : wiki.retry
+              ? "Couldn't reach Wikipedia just now — click the star again to retry."
+              : "Nothing to project for this thought yet. Try naming a thing, place or idea."));
+          if (wiki.retry || wiki.offline) delete wikiCache[s.id];
+        } else {
+          return;
+        }
+        box.appendChild(sec);
+        return;
+      }
+      if (activeFacet >= entries.length) activeFacet = 0;
+
+      // topic chips + how the thought's topics interconnect
+      const labels = [...new Set(entries.map(en => en.topicLabel))];
+      const chips = el("div", "kn-topics");
+      labels.forEach(l => chips.appendChild(el("span", "kn-topic", l)));
+      sec.appendChild(chips);
+      const tids = s.topics || [];
+      for (let a = 0; a < tids.length; a++) for (let b = a + 1; b < tids.length; b++) {
+        const why = topics[tids[a]] && topics[tids[a]].related && topics[tids[a]].related[tids[b]];
+        if (why) sec.appendChild(el("div", "kn-blurb", `${topics[tids[a]].label} ↔ ${topics[tids[b]].label}: ${why}`));
+      }
+
+      const tabs = el("div", "kn-tabs");
+      entries.forEach((en, fi) => {
+        const t = el("button", "kn-tab" + (fi === activeFacet ? " active" : ""));
+        const dot = el("span", "dot");
+        dot.style.background = en.color; dot.style.color = en.color;
+        t.appendChild(dot);
+        t.appendChild(document.createTextNode(en.facet.name));
+        t.addEventListener("click", () => setActiveFacet(fi));
+        tabs.appendChild(t);
+      });
+      sec.appendChild(tabs);
+
+      const en = entries[activeFacet];
+      if (en.math) {
+        const m = el("div", "kn-math");
+        const inp = el("div", "kn-sub", en.math.input);
+        inp.style.textTransform = "none";
+        m.appendChild(inp);
+        m.appendChild(el("div", "answer", en.math.answer));
+        if (en.math.steps && en.math.steps.length) {
+          const ol = el("ol");
+          en.math.steps.forEach(x => ol.appendChild(el("li", null, x)));
+          m.appendChild(ol);
+        }
+        sec.appendChild(m);
+      } else {
+        if (en.facet.blurb) sec.appendChild(el("div", "kn-blurb", en.facet.blurb));
+        en.facet.items.forEach((it, ii) => sec.appendChild(renderItem(it, ii)));
+        const t = topics[en.topicId];
+        if (t && t.note) sec.appendChild(el("div", "kn-note", t.note));
+        if (en.topicId !== "wikipedia") {
+          sec.appendChild(el("div", "kn-note", "Prices, specs and nutrition are typical approximate values."));
+        }
+      }
+      box.appendChild(sec);
+    }
+
+    function renderLinks(i) {
+      const box = document.getElementById("detail-links");
+      box.innerHTML = "";
+      const conns = [];
+      edges.forEach(e => {
+        if (e.source === i) conns.push([e, e.target]);
+        else if (e.target === i) conns.push([e, e.source]);
+      });
+      if (!conns.length) return;
+      conns.sort((a, b) => (b[0].type === "topic") - (a[0].type === "topic") || b[0].weight - a[0].weight);
+      const sec = el("div", "kn-section");
+      sec.appendChild(el("div", "kn-heading", "Interconnected thoughts"));
+      conns.slice(0, 8).forEach(([e, j]) => {
+        const b = el("button", "kn-conn");
+        b.appendChild(el("div", "t", truncate(stars[j].text, 110)));
+        const why = e.reason || (e.type === "bridge" ? "Similar wording, across constellations" : "Similar wording");
+        b.appendChild(el("div", "r" + (e.type === "topic" ? "" : " words"), why));
+        b.addEventListener("click", () => selectStar(j));
+        sec.appendChild(b);
+      });
+      box.appendChild(sec);
+    }
+
+    function showDetail(star, i) {
       document.getElementById("detail-cluster").textContent = star.cluster_name;
       document.getElementById("detail-date").textContent = new Date(star.created_at).toLocaleString(undefined, {
         year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit",
@@ -531,9 +1003,59 @@ __THREE_JS_TAG__
         p.textContent = "○ Dormant theme — gone quiet recently";
         flags.appendChild(p);
       }
+      renderKnowledge(i);
+      renderLinks(i);
+      detailPanel.scrollTop = 0;
       detailPanel.classList.add("open");
+      document.body.classList.add("panel-open");
     }
-    document.getElementById("detail-close").addEventListener("click", () => detailPanel.classList.remove("open"));
+    document.getElementById("detail-close").addEventListener("click", deselect);
+    window.addEventListener("keydown", e => { if (e.key === "Escape" && selected >= 0) deselect(); });
+
+    // ---- Wikipedia fallback for thoughts outside the curated topics ----
+    const STOP = new Set(("i me my mine we our you your he she him her it its they them their a an the and or but so to of in on " +
+      "at for with about from into is am are was were be been being have has had do does did not no just really very feel " +
+      "felt like love loved want wanted need needed think thinking thought today tonight yesterday tomorrow would could should " +
+      "will can this that these those some any more most get got go going went also still maybe much many lot lots something " +
+      "things thing kind sort again always never ever every when what why how who where there here then than too").split(" "));
+    async function loadWiki(i) {
+      const s = stars[i];
+      if (wikiCache[s.id]) return;
+      const words = (s.text.toLowerCase().match(/[a-z][a-z'-]+/g) || []).filter(w => !STOP.has(w) && w.length > 2);
+      const q = [...new Set(words)].slice(0, 6).join(" ");
+      if (!q) { wikiCache[s.id] = { error: true }; if (selected === i) renderKnowledge(i); return; }
+      if (!navigator.onLine) { wikiCache[s.id] = { error: true, offline: true }; if (selected === i) renderKnowledge(i); return; }
+      wikiCache[s.id] = { loading: true };
+      if (selected === i) renderKnowledge(i);
+      const link = t => "https://en.wikipedia.org/wiki/" + encodeURIComponent(t.replace(/ /g, "_"));
+      try {
+        const sr = await fetch("https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&origin=*&srlimit=7&srprop=snippet&srsearch="
+          + encodeURIComponent(q)).then(r => r.json());
+        const hits = (sr.query && sr.query.search) || [];
+        if (!hits.length) throw new Error("no results");
+        const top = hits[0];
+        let summary = stripHtml(top.snippet) + "…";
+        try {
+          const sm = await fetch("https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(top.title.replace(/ /g, "_"))).then(r => r.json());
+          if (sm && sm.extract) summary = sm.extract;
+        } catch (e) { /* snippet is fine */ }
+        const toItem = h => ({ name: h.title, summary: stripHtml(h.snippet) + "…", link: link(h.title) });
+        const facets = [{ name: "Overview", items: [{ name: top.title, summary, link: link(top.title) }] }];
+        if (hits.length > 1) facets.push({ name: "Related ideas", items: hits.slice(1, 4).map(toItem) });
+        if (hits.length > 4) facets.push({ name: "Explore further", items: hits.slice(4).map(toItem) });
+        wikiCache[s.id] = { facets };
+      } catch (e) {
+        // network trouble (offline, rate limit) is retryable; "no results" is not
+        wikiCache[s.id] = { error: true, retry: !(e && e.message === "no results") };
+      }
+      const cl = buildCloud(i);
+      if (selected === i) {
+        if (cl) { cl.group.scale.setScalar(0.05); cl.group.userData.targetScale = 1; activeFacet = 0; showLabels(i); flyTo(new THREE.Vector3(s.x, s.y, s.z), 44); }
+        renderKnowledge(i);
+      } else if (cl) {
+        cl.group.userData.targetScale = cloudBase;
+      }
+    }
 
     // ---- legend ----
     const legendList = document.getElementById("legend-list");
@@ -542,14 +1064,15 @@ __THREE_JS_TAG__
       item.className = "legend-item";
       item.innerHTML = `
         <span class="legend-swatch" style="background:${clusterColor(parseInt(cid))}; color:${clusterColor(parseInt(cid))}"></span>
-        <span class="legend-name">${info.name}</span>
+        <span class="legend-name"></span>
         <span class="legend-count">${info.count}</span>
         ${info.status === "dormant" ? '<span class="legend-badge">dormant</span>' : ""}
       `;
+      item.querySelector(".legend-name").textContent = info.name;
       item.addEventListener("click", () => {
         clusterVisible[cid] = !clusterVisible[cid];
         item.classList.toggle("dim", !clusterVisible[cid]);
-        applyVisibility();
+        applyVisibility(document.getElementById("search-input").value);
       });
       legendList.appendChild(item);
     });
@@ -559,12 +1082,15 @@ __THREE_JS_TAG__
       const matchByIndex = new Array(stars.length);
       starMeshes.forEach(sprite => {
         const s = sprite.userData.star;
+        const i = sprite.userData.index;
         const clusterOn = clusterVisible[String(s.cluster)];
-        const matchesSearch = !term || s.text.toLowerCase().includes(term);
-        matchByIndex[sprite.userData.index] = clusterOn && matchesSearch;
+        const topicText = (s.topics || []).map(t => (topics[t] ? topics[t].label : t)).join(" ").toLowerCase();
+        const matchesSearch = !term || s.text.toLowerCase().includes(term) || topicText.includes(term);
         const visible = clusterOn && matchesSearch;
+        matchByIndex[i] = visible;
         sprite.material.opacity = visible ? sprite.userData.baseOpacity : 0.03;
-        sprite.scale.setScalar(term && matchesSearch && clusterOn ? sprite.userData.baseScale * 1.5 : sprite.userData.baseScale);
+        sprite.scale.setScalar(term && visible ? sprite.userData.baseScale * 1.5 : sprite.userData.baseScale);
+        if (clouds[i]) clouds[i].group.visible = visible;
       });
       lineGroup.children.forEach(line => {
         const onA = clusterVisible[String(line.userData.clusterA)];
@@ -574,6 +1100,7 @@ __THREE_JS_TAG__
         line.visible = clustersOn;
         line.material.opacity = (clustersOn && (!term || endpointsMatch)) ? line.userData.baseOpacity : 0.02;
       });
+      if (selected >= 0) highlightEdges(selected);
     }
 
     document.getElementById("search-input").addEventListener("input", e => applyVisibility(e.target.value));
@@ -585,7 +1112,11 @@ __THREE_JS_TAG__
       replaying = true;
       document.getElementById("replay-label").textContent = "Replaying…";
       const ordered = starMeshes.slice().sort((a, b) => new Date(a.userData.star.created_at) - new Date(b.userData.star.created_at));
-      ordered.forEach(sprite => { sprite.scale.setScalar(0.001); sprite.material.opacity = 0; });
+      ordered.forEach(sprite => {
+        sprite.scale.setScalar(0.001); sprite.material.opacity = 0;
+        const cl = clouds[sprite.userData.index];
+        if (cl) { cl.group.visible = false; cl.group.scale.setScalar(0.01); }
+      });
       lineGroup.visible = false;
       let i = 0;
       const step = Math.max(12, Math.min(90, 3200 / ordered.length));
@@ -601,6 +1132,8 @@ __THREE_JS_TAG__
         const sprite = ordered[i];
         sprite.scale.setScalar(sprite.userData.baseScale);
         sprite.material.opacity = sprite.userData.baseOpacity;
+        const cl = clouds[sprite.userData.index];
+        if (cl) cl.group.visible = true; // grows back to its target size in the render loop
         i++;
       }, step);
     });
@@ -608,13 +1141,49 @@ __THREE_JS_TAG__
     // ---- render loop ----
     function animate() {
       requestAnimationFrame(animate);
+      let camDirty = false;
+      if (focusRadius !== null) {
+        target.lerp(focusTarget, 0.07);
+        radius += (focusRadius - radius) * 0.07;
+        if (target.distanceTo(focusTarget) < 0.05 && Math.abs(focusRadius - radius) < 0.1) focusRadius = null;
+        camDirty = true;
+      }
       if (autoRotate && !dragging) {
-        theta += 0.0009;
-        updateCamera();
+        theta += selected >= 0 ? 0.0006 : 0.0009;
+        camDirty = true;
+      }
+      if (camDirty) updateCamera();
+      if (selected >= 0 && clouds[selected]) {
+        const m = camera.matrixWorld.elements;
+        const up = new THREE.Vector3(m[4], m[5], m[6]).normalize();
+        const w = new THREE.Vector3();
+        clouds[selected].group.userData.labels.forEach(l => {
+          if (!l.userData.anchor) return;
+          l.userData.anchor.getWorldPosition(w);
+          l.position.copy(w).addScaledVector(up, -(2.3 + l.userData.slot * 1.75) * (window.innerWidth <= 720 ? 0.62 : 1));
+        });
+      }
+      for (const cl of clouds) {
+        if (!cl) continue;
+        const g = cl.group;
+        g.rotation.y += g.userData.spin;
+        const cur = g.scale.x, tgt = g.userData.targetScale;
+        if (Math.abs(cur - tgt) > 0.002) g.scale.setScalar(cur + (tgt - cur) * 0.08);
       }
       renderer.render(scene, camera);
     }
     animate();
+
+    // ---- open straight onto a just-added thought (or a lone first star) ----
+    const params = new URLSearchParams(window.location.search);
+    const focusId = params.get("focus");
+    let initial = -1;
+    if (focusId) {
+      initial = stars.findIndex(s => String(s.id) === focusId);
+      try { history.replaceState(null, "", window.location.pathname); } catch (e) { /* ignore */ }
+    }
+    if (initial < 0 && stars.length === 1) initial = 0;
+    if (initial >= 0) setTimeout(() => selectStar(initial), 350);
   }
 })();
 </script>

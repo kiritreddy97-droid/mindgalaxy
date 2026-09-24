@@ -43,6 +43,24 @@ It runs in well under a second for hundreds of entries, works completely offline
 - **Two ways to view it**: a live local web server (`mindgalaxy serve`) that always reflects your current entries, or a single self-contained HTML file (`mindgalaxy export`) you can save, share, or email — no server required, works completely offline (three.js is vendored inline, not loaded from a CDN).
 - **A real CLI and a real SQLite database** — your entries live in one portable `.db` file.
 
+## Gas clouds: knowledge around every star
+
+Each star now glows with a **gas cloud** — one coloured nebula per facet of what the thought is about. Click a star and the camera flies to it, the nebulae get labelled, and the side panel lets you explore each facet:
+
+| You write… | The gas cloud shows |
+|---|---|
+| "I love to cook", "I like to eat" | Cuisines (Italian, Indian, Mexican, East Asian, Middle Eastern) — each dish with its place of origin, ingredients, recipe steps and approximate nutrition |
+| "I love milk", "I need to buy milk" | Types of milk, plant milks, things made from milk (paneer, yogurt, butter, ghee, mozzarella) and dishes with milk — with calories, protein, fat, calcium and recipes |
+| "I feel like buying a car" | Cars by speed, mileage, seating and country of origin (0–60, top speed, mpg/range, seats, price) |
+| "I need a watch", "lost track of time" | Luxury Swiss, automatic, quartz/digital and smartwatches (origin, movement, price, water resistance) |
+| house, hospital, school, university, marriage, wife/husband, sexual health, pregnancy, birth, child, technology, phones, health, disease | Curated facets for each (types, origins, checklists, milestones, warning signs…) |
+| "solve 2x + 3 = 11", "what is 15% of 240" | A worked, step-by-step solution (arithmetic, percentages, linear and quadratic equations) |
+| anything else | A live Wikipedia lookup (overview + related ideas), fetched in the browser only when you open that star |
+
+**Interconnections.** Thoughts whose topics are the same or related are joined by teal dashed lines — even when they share no words. "I love milk" links to "I like to cook" (*milk is a base for sauces, desserts, curries and chai*) and to "we are pregnant" (*calcium needs rise; avoid unpasteurized dairy*). The panel lists every interconnected thought with the reason.
+
+The curated knowledge lives in `mindgalaxy/knowledge_base.py` as plain data — add a topic (keywords + facets + items) or a line to `RELATIONS` and it lights up automatically. Topic detection, the maths solver and the interconnection graph are in `mindgalaxy/knowledge.py`. Figures such as prices, specs and calories are typical approximate values, and the health topics are general information, not medical advice.
+
 ## Installation
 
 Requires Python 3.10+.
@@ -115,6 +133,8 @@ All commands accept `--db path/to/file.db` (defaults to `~/.mindgalaxy/galaxy.db
 mindgalaxy/
 ├── mindgalaxy/
 │   ├── engine.py       # the whole ML pipeline (TF-IDF → SVD → k-means → graph)
+│   ├── knowledge.py     # topic detection, maths solver, topic interconnections
+│   ├── knowledge_base.py # curated gas-cloud knowledge (19 topics)
 │   ├── storage.py       # SQLite-backed entry storage
 │   ├── exporter.py      # renders the galaxy template (standalone or server mode)
 │   ├── cli.py            # command-line interface
@@ -157,7 +177,7 @@ Without those two variables set, the site still works, but entries added through
 
 ## Privacy
 
-Nothing here calls out to the network at runtime by default. Your entries live in a local SQLite file. Exported HTML snapshots are single files with the visualization library embedded inline — open one on a plane, no connection required. The one exception is an optional Vercel deployment configured with Turso (see above), where entries are written to that hosted database instead of a local file so they can persist across serverless requests.
+Nothing here calls out to the network at runtime by default, with one small exception: when you open a star whose thought doesn't match any curated topic, the page asks Wikipedia's public search API about a few keywords from it (never the full text, and only when you click that star). Your entries live in a local SQLite file. Exported HTML snapshots are single files with the visualization library embedded inline — open one on a plane, no connection required. The one exception is an optional Vercel deployment configured with Turso (see above), where entries are written to that hosted database instead of a local file so they can persist across serverless requests.
 
 ## License
 

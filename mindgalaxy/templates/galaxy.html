@@ -154,6 +154,33 @@ __THREE_JS_TAG__
   .kn-conn .r.words { color: var(--muted); }
   .kn-empty { font-size: 12px; color: var(--muted); }
 
+  /* ---- AI drill-down explorer ---- */
+  .kn-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 10px; font-size: 11.5px; }
+  .kn-crumbs button { font: inherit; background: none; border: none; padding: 2px 4px; color: var(--accent); cursor: pointer; border-radius: 6px; }
+  .kn-crumbs button:hover { background: rgba(255,255,255,0.06); }
+  .kn-crumbs button[aria-current="true"] { color: var(--text); cursor: default; background: none; }
+  .kn-crumbs .sep { color: var(--muted); }
+  .kn-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+  .kn-choice { display: block; width: 100%; text-align: left; font: inherit; cursor: pointer; background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-left-width: 3px; border-radius: 10px; padding: 9px 11px; margin-bottom: 7px; color: var(--text); transition: background 0.15s, transform 0.15s; }
+  .kn-choice:hover { background: rgba(255,255,255,0.07); transform: translateX(2px); }
+  .kn-choice .t { font-size: 13px; font-weight: 600; }
+  .kn-choice .b { font-size: 11.5px; color: #c9cce8; margin-top: 3px; line-height: 1.45; }
+  .kn-retry { font: inherit; font-size: 12px; margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+  .kn-medical { font-size: 11.5px; line-height: 1.5; color: #ffd9a8; background: rgba(255,170,80,0.08); border: 1px solid rgba(255,170,80,0.3); border-radius: 10px; padding: 9px 11px; margin-bottom: 10px; }
+  .kn-hospital { border: 1px solid rgba(255,196,110,0.45); border-radius: 12px; padding: 12px; margin-bottom: 8px; background: linear-gradient(135deg, rgba(255,196,110,0.1), rgba(255,120,120,0.05)); }
+  .kn-hospital .h { font-size: 14px; font-weight: 600; color: #fff; }
+  .kn-hospital .d { font-size: 11.5px; color: var(--gold); margin-top: 2px; }
+  .kn-hospital .w { font-size: 12.5px; color: #e4e6fa; line-height: 1.55; margin-top: 6px; }
+  .kn-hospital .src { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .kn-hospital .src a { color: var(--muted); }
+  .kn-hospital .cta { display: inline-block; margin-top: 9px; font-size: 12.5px; font-weight: 600; color: #0b0e21; background: var(--gold); padding: 6px 12px; border-radius: 8px; text-decoration: none; }
+
+  #user-chip { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  #user-chip b { color: var(--text); font-weight: 600; }
+  #user-chip button { font: inherit; font-size: 11.5px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
+  #user-chip button:hover { background: rgba(255,255,255,0.1); }
+  #composer-status { display: none; color: var(--accent); font-size: 11.5px; padding: 0 16px 10px; }
+
   #detail-panel .close-btn {
     position: absolute; top: 12px; right: 14px; cursor: pointer; color: var(--muted);
     font-size: 18px; line-height: 1; background: none; border: none;
@@ -213,9 +240,11 @@ __THREE_JS_TAG__
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
   @media (max-width: 720px) {
     #header .subtitle { display: none; }
-    #search-box { position: fixed; top: 64px; left: 16px; right: 16px; }
+    #search-box { position: fixed; top: 80px; left: 16px; right: 16px; }
     #search-box input { width: 100%; }
-    #legend { top: 112px; left: 16px; width: 190px; max-height: 26vh; }
+    #legend { top: 128px; left: 16px; width: 190px; max-height: 26vh; }
+    #user-chip span { display: none; }
+    #user-chip { margin-left: auto; }
     #controls-hint { display: none; }
     #replay-btn { bottom: 92px; right: 16px; }
     #composer-wrap { width: calc(100vw - 32px); bottom: 16px; }
@@ -239,6 +268,7 @@ __THREE_JS_TAG__
 <div class="hud" id="header">
   <div class="title-row">
     <h1 id="page-title">__GALAXY_TITLE__</h1>
+    <div id="user-chip"><span>Signed in as <b id="user-name"></b></span><button id="logout-btn" type="button">Sign out</button></div>
   </div>
   <div class="subtitle">A living map of your own thinking — every star is a thought, positioned by what it means, not when you wrote it. Nearby stars think alike. Lines are conceptual kinship; teal dashed lines link thoughts whose topics are related. Each star glows with a gas cloud of knowledge about what it's about — click one to explore. Gold stars are ideas nothing else in your galaxy resembles yet.</div>
   <div id="stats-line"></div>
@@ -270,6 +300,7 @@ __THREE_JS_TAG__
     <textarea id="composer-input" rows="1" placeholder="Add a thought… (Enter to add, Shift+Enter for a new line)"></textarea>
     <button id="composer-submit">Add</button>
   </div>
+  <div id="composer-status" role="status"></div>
   <div id="composer-error"></div>
 </div>
 
@@ -311,7 +342,21 @@ __THREE_JS_TAG__
     try { data = JSON.parse(raw); } catch (e) { data = null; }
     boot(data);
   } else {
-    fetch("/api/stars").then(r => r.json()).then(boot).catch(() => boot(null));
+    // On the hosted site every galaxy is private: check who's signed in first.
+    fetch("/api/me").then(r => {
+      if (r.status === 401) { window.location.href = "/login"; throw new Error("signed out"); }
+      return r.json();
+    }).then(me => {
+      if (me.username) {
+        document.getElementById("user-name").textContent = me.username;
+        document.getElementById("user-chip").style.display = "flex";
+      }
+      return fetch("/api/stars").then(r => r.json());
+    }).then(boot).catch(err => { if (err.message !== "signed out") boot(null); });
+    document.getElementById("logout-btn").addEventListener("click", () => {
+      fetch("/api/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .finally(() => { window.location.href = "/login"; });
+    });
   }
 
   // ---------------------------------------------------------------
@@ -355,7 +400,19 @@ __THREE_JS_TAG__
           body: JSON.stringify({ text }),
         });
         const body = await res.json().catch(() => ({}));
+        if (res.status === 401) { window.location.href = "/login"; return; }
         if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+        if (body.ai) {
+          // Let Claude work out what the thought is about and which of your
+          // other thoughts it's truly related to, before the galaxy redraws.
+          // The thought is already saved, so a failure here isn't fatal.
+          const status = document.getElementById("composer-status");
+          status.textContent = "Condensing gas clouds and tracing true connections…";
+          status.style.display = "block";
+          await fetch(`/api/entries/${body.id}/enrich`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+          }).catch(() => null);
+        }
         // Reload so boot() re-fetches /api/stars and the new star is
         // positioned by a fresh recomputation of the whole galaxy -- then
         // fly straight to it so its gas cloud is the first thing you see.
@@ -486,10 +543,13 @@ __THREE_JS_TAG__
         new THREE.Vector3(a.x, a.y, a.z),
         new THREE.Vector3(b.x, b.y, b.z),
       ]);
-      const isTopic = e.type === "topic";
+      const isTopic = e.type === "topic" || e.type === "ai";
+      const isHospital = e.type === "hospital";
       const isBridge = e.type === "bridge";
       let mat;
-      if (isTopic) {
+      if (isHospital) {
+        mat = new THREE.LineDashedMaterial({ color: 0xffc46e, dashSize: 2.2, gapSize: 0.8, transparent: true, opacity: 0.75 });
+      } else if (isTopic) {
         mat = new THREE.LineDashedMaterial({ color: 0x5ff0c8, dashSize: 1.4, gapSize: 0.9, transparent: true, opacity: 0.5 });
       } else {
         mat = new THREE.LineBasicMaterial({
@@ -499,7 +559,7 @@ __THREE_JS_TAG__
         });
       }
       const line = new THREE.Line(geo, mat);
-      if (isTopic) line.computeLineDistances();
+      if (isTopic || isHospital) line.computeLineDistances();
       line.userData = { clusterA: a.cluster, clusterB: b.cluster, sourceIdx: e.source, targetIdx: e.target, baseOpacity: mat.opacity };
       lineGroup.add(line);
     });
@@ -524,7 +584,31 @@ __THREE_JS_TAG__
     }
     function gauss() { return (Math.random() + Math.random() + Math.random() - 1.5) / 1.5; }
 
+    // With Claude on, the gas cloud is one level of a drill-down through the
+    // star's subject: each nebula is a choice (a country, a kind of noodle,
+    // a dish style ...) or, at the bottom, a concrete thing to read about.
+    const AI = !!data.ai;
+    const explore = {};
+    const MEDICAL = new Set(["symptom", "disease", "hospital"]);
+    function toItem(it) {
+      const out = { name: it.name, origin: it.origin, summary: it.summary };
+      if (it.facts && it.facts.length) { out.attrs = {}; it.facts.forEach(f => (out.attrs[f.label] = f.value)); }
+      if (it.ingredients && it.ingredients.length) out.ingredients = it.ingredients;
+      if (it.steps && it.steps.length) { out.steps = it.steps; out.steps_label = it.steps_label || "Steps"; }
+      return out;
+    }
+    function aiFacets(star) {
+      const st = explore[star.id];
+      if (!st || !st.node) return [];
+      const n = st.node, tid = "explore:" + st.subject + ">" + st.path.join(">");
+      if (n.kind === "choices") {
+        return (n.choices || []).slice(0, 10).map(c => ({ topicId: tid, topicLabel: st.subject, facet: { name: c.label, items: [] }, choice: c }));
+      }
+      return (n.items || []).slice(0, 10).map(it => ({ topicId: tid, topicLabel: st.subject, facet: { name: it.name, items: [toItem(it)] }, item: it }));
+    }
+
     function facetsForStar(star) {
+      if (AI) return aiFacets(star);
       const out = [];
       if (star.math) out.push({ topicId: "maths", topicLabel: "Maths", facet: { name: "Solution", items: [] }, math: star.math });
       (star.topics || []).forEach((tid, ti) => {
@@ -646,7 +730,10 @@ __THREE_JS_TAG__
         lab.userData = { kind: "facet", facetIdx: fi };
         cl.group.add(lab); cl.group.userData.labels.push(lab);
         if (fi !== activeFacet) return;
-        const items = en.math ? [{ name: en.math.answer }] : en.facet.items.slice(0, 4);
+        const items = en.math ? [{ name: en.math.answer }]
+          : en.choice ? []
+          : en.item ? (en.item.origin ? [{ name: en.item.origin }] : [])
+          : en.facet.items.slice(0, 4);
         // item labels hang in a screen-aligned list under their facet label
         // (positioned every frame in the render loop, so they never tangle)
         items.forEach((it, ii) => {
@@ -756,7 +843,10 @@ __THREE_JS_TAG__
       if (moved > 6) return; // that was a drag, not a click
       const lab = pickLabel(e.clientX, e.clientY);
       if (lab) {
-        setActiveFacet(lab.userData.facetIdx, lab.userData.kind === "item" ? lab.userData.itemIdx : null);
+        const en = clouds[selected] && clouds[selected].entries[lab.userData.facetIdx];
+        if (en && en.choice) drillInto(selected, en.choice.label);
+        else if (en && en.item) setActiveFacet(lab.userData.facetIdx, lab.userData.facetIdx);
+        else setActiveFacet(lab.userData.facetIdx, lab.userData.kind === "item" ? lab.userData.itemIdx : null);
         return;
       }
       const hit = pick(e.clientX, e.clientY);
@@ -785,9 +875,13 @@ __THREE_JS_TAG__
       showDetail(s, i);
       highlightEdges(i);
       applyViewOffset();
-      if (!cl && !s.math && !(s.topics || []).length) loadWiki(i);
+      clearBurstLabels();
+      burstHospitals(i);
+      if (AI) { if (!explore[s.id]) loadExplore(i, []); }
+      else if (!cl && !s.math && !(s.topics || []).length) loadWiki(i);
     }
     function deselect() {
+      clearBurstLabels();
       if (selected >= 0) {
         clearLabels(selected);
         if (clouds[selected]) clouds[selected].group.userData.targetScale = cloudBase;
@@ -883,7 +977,143 @@ __THREE_JS_TAG__
       return card;
     }
 
+    // ---- AI explorer: fetch one level, rebuild the gas cloud around it ----
+    function rebuildCloud(i) {
+      clearLabels(i);
+      activeFacet = 0;
+      const cl = buildCloud(i);
+      const s = stars[i];
+      if (selected === i) {
+        if (cl) {
+          cl.group.scale.setScalar(0.05); cl.group.userData.targetScale = 1;
+          showLabels(i); flyTo(new THREE.Vector3(s.x, s.y, s.z), 44);
+        }
+        renderKnowledge(i);
+      } else if (cl) {
+        cl.group.userData.targetScale = cloudBase;
+      }
+    }
+    async function loadExplore(i, path) {
+      const s = stars[i];
+      const st = explore[s.id] || (explore[s.id] = { path: [], nodes: {}, subject: (s.analysis && s.analysis.subject) || "", category: s.analysis && s.analysis.category });
+      const key = JSON.stringify(path);
+      st.path = path;
+      st.error = null;
+      if (st.nodes[key]) { st.node = st.nodes[key]; st.loading = false; rebuildCloud(i); return; }
+      st.node = null; st.loading = true;
+      rebuildCloud(i);
+      let error = null;
+      try {
+        const res = await fetch("/api/explore", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entry_id: s.id, path }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 401) { window.location.href = "/login"; return; }
+        if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+        st.nodes[key] = body.node;
+        st.subject = body.subject; st.category = body.category;
+      } catch (e) {
+        error = navigator.onLine === false ? "You're offline — reconnect to explore." : (e.message || "Couldn't reach the knowledge service.");
+      }
+      if (JSON.stringify(st.path) !== key) return; // the user already moved elsewhere
+      st.loading = false;
+      st.node = st.nodes[key] || null;
+      st.error = error;
+      rebuildCloud(i);
+    }
+    function drillInto(i, label) {
+      const st = explore[stars[i].id];
+      if (!st || st.loading || st.path.length >= 5) return;
+      loadExplore(i, st.path.concat([label]));
+    }
+
+    function renderExplore(i, box) {
+      const s = stars[i];
+      const st = explore[s.id];
+      const sec = el("div", "kn-section");
+      const head = el("div", "kn-heading", "Gas cloud");
+      sec.appendChild(head);
+      box.appendChild(sec);
+      if (!st) return;
+      if (MEDICAL.has(st.category)) {
+        sec.appendChild(el("div", "kn-medical",
+          "General health information, not a diagnosis. Please see a doctor about symptoms — and call your local emergency number for severe or sudden ones, such as chest pain, trouble breathing, or signs of a stroke."));
+      }
+      // breadcrumb trail back up through the levels
+      const crumbs = el("nav", "kn-crumbs");
+      crumbs.setAttribute("aria-label", "Explore path");
+      const trail = [st.subject || "This thought"].concat(st.path);
+      trail.forEach((label, k) => {
+        if (k) crumbs.appendChild(el("span", "sep", "›"));
+        const b = el("button", null, label);
+        b.type = "button";
+        if (k === trail.length - 1) b.setAttribute("aria-current", "true");
+        else b.addEventListener("click", () => loadExplore(i, st.path.slice(0, k)));
+        crumbs.appendChild(b);
+      });
+      sec.appendChild(crumbs);
+
+      if (st.loading) {
+        head.appendChild(el("span", "spinner-sm"));
+        sec.appendChild(el("div", "kn-empty", "Condensing this gas cloud…"));
+        return;
+      }
+      if (st.error) {
+        sec.appendChild(el("div", "kn-empty", st.error));
+        const retry = el("button", "kn-retry", "Try again");
+        retry.addEventListener("click", () => loadExplore(i, st.path));
+        sec.appendChild(retry);
+        return;
+      }
+      const n = st.node;
+      if (!n) return;
+      if (n.heading) sec.appendChild(el("div", "kn-title", n.heading));
+      if (n.prompt) sec.appendChild(el("div", "kn-blurb", n.prompt));
+      const cl = clouds[i];
+      const entries = cl ? cl.entries : [];
+      if (n.kind === "choices") {
+        entries.forEach((en, fi) => {
+          const b = el("button", "kn-choice");
+          b.style.borderLeftColor = en.color;
+          b.appendChild(el("div", "t", en.choice.label));
+          if (en.choice.blurb) b.appendChild(el("div", "b", en.choice.blurb));
+          b.addEventListener("click", () => drillInto(i, en.choice.label));
+          sec.appendChild(b);
+        });
+      } else {
+        if (activeFacet >= entries.length) activeFacet = 0;
+        const tabs = el("div", "kn-tabs");
+        entries.forEach((en, fi) => {
+          const t = el("button", "kn-tab" + (fi === activeFacet ? " active" : ""));
+          const dot = el("span", "dot");
+          dot.style.background = en.color; dot.style.color = en.color;
+          t.appendChild(dot);
+          t.appendChild(document.createTextNode(en.facet.name));
+          t.addEventListener("click", () => setActiveFacet(fi, fi));
+          tabs.appendChild(t);
+        });
+        sec.appendChild(tabs);
+        entries.forEach((en, fi) => {
+          const card = renderItem(en.facet.items[0], fi);
+          if (fi === activeFacet) {
+            card.classList.add("expanded");
+            const more = card.querySelector(".kn-more");
+            if (more) more.textContent = more.textContent.replace(/^Show /, "Hide ");
+          }
+          sec.appendChild(card);
+        });
+      }
+      if (n.note) sec.appendChild(el("div", "kn-note", n.note));
+    }
+
     function renderKnowledge(i) {
+      if (AI) {
+        const box = document.getElementById("detail-knowledge");
+        box.innerHTML = "";
+        renderExplore(i, box);
+        return;
+      }
       const s = stars[i];
       const box = document.getElementById("detail-knowledge");
       box.innerHTML = "";
@@ -969,18 +1199,102 @@ __THREE_JS_TAG__
         else if (e.target === i) conns.push([e, e.source]);
       });
       if (!conns.length) return;
-      conns.sort((a, b) => (b[0].type === "topic") - (a[0].type === "topic") || b[0].weight - a[0].weight);
+      const rank = e => (e.type === "hospital" ? 3 : e.type === "ai" ? 2 : e.type === "topic" ? 1 : 0);
+      conns.sort((a, b) => rank(b[0]) - rank(a[0]) || b[0].weight - a[0].weight);
+
+      // verified "renowned for treating this" hospital links get a card
+      const hospitals = conns.filter(([e]) => e.type === "hospital" && e.extra);
+      if (hospitals.length) {
+        const hs = el("div", "kn-section");
+        hs.appendChild(el("div", "kn-heading", "Specialist care"));
+        hospitals.forEach(([e, j]) => hs.appendChild(hospitalCard(e.extra, j)));
+        box.appendChild(hs);
+      }
+
       const sec = el("div", "kn-section");
       sec.appendChild(el("div", "kn-heading", "Interconnected thoughts"));
       conns.slice(0, 8).forEach(([e, j]) => {
         const b = el("button", "kn-conn");
         b.appendChild(el("div", "t", truncate(stars[j].text, 110)));
         const why = e.reason || (e.type === "bridge" ? "Similar wording, across constellations" : "Similar wording");
-        b.appendChild(el("div", "r" + (e.type === "topic" ? "" : " words"), why));
+        b.appendChild(el("div", "r" + (e.type === "topic" || e.type === "ai" || e.type === "hospital" ? "" : " words"), why));
         b.addEventListener("click", () => selectStar(j));
         sec.appendChild(b);
       });
       box.appendChild(sec);
+    }
+
+    function hospitalCard(x, j) {
+      const card = el("div", "kn-hospital");
+      card.appendChild(el("div", "h", "🏥 " + x.hospital + (x.location ? " · " + x.location : "")));
+      card.appendChild(el("div", "d", (x.department ? x.department + " — " : "") + "renowned for " + x.condition));
+      if (x.why) card.appendChild(el("div", "w", x.why));
+      if (x.find_doctor_url) {
+        const a = el("a", "cta", "Find a specialist on the official site →");
+        a.href = x.find_doctor_url; a.target = "_blank"; a.rel = "noopener noreferrer";
+        card.appendChild(a);
+      }
+      if (x.evidence_urls && x.evidence_urls.length) {
+        const src = el("div", "src", "Sources: ");
+        x.evidence_urls.forEach((u, k) => {
+          if (k) src.appendChild(document.createTextNode(" · "));
+          const a = el("a", null, (() => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return "link"; } })());
+          a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer";
+          src.appendChild(a);
+        });
+        card.appendChild(src);
+      }
+      return card;
+    }
+
+    // ---- hospital burst: gas explodes out of the hospital star and the ----
+    // ---- specialist info condenses beside it                           ----
+    const bursts = [];
+    let burstLabels = [];
+    function clearBurstLabels() {
+      burstLabels.forEach(l => { scene.remove(l); disposeObject(l); });
+      burstLabels = [];
+    }
+    function burst(pos) {
+      const n = 520;
+      const geo = new THREE.BufferGeometry();
+      const p = new Float32Array(n * 3), col = new Float32Array(n * 3), vel = [];
+      const warm = [new THREE.Color(0xffc46e), new THREE.Color(0xff8a7a), new THREE.Color(0xfff1c9)];
+      for (let k = 0; k < n; k++) {
+        p[k * 3] = pos.x; p[k * 3 + 1] = pos.y; p[k * 3 + 2] = pos.z;
+        const d = fib(k, n);
+        vel.push(d.multiplyScalar(0.25 + Math.random() * 0.55));
+        const c = warm[k % 3];
+        col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+      }
+      geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      const mat = new THREE.PointsMaterial({ size: 1.8, map: glowTex, vertexColors: true, transparent: true, opacity: 1,
+        depthWrite: false, blending: THREE.AdditiveBlending });
+      const pts = new THREE.Points(geo, mat);
+      scene.add(pts);
+      bursts.push({ pts, vel, age: 0 });
+    }
+    function burstHospitals(i) {
+      if (!AI) return;
+      edges.forEach(e => {
+        if (e.type !== "hospital" || !e.extra || (e.source !== i && e.target !== i)) return;
+        const cat = k => stars[k].analysis && stars[k].analysis.category;
+        const h = cat(e.source) === "hospital" ? e.source : e.target;
+        const hs = stars[h];
+        const at = new THREE.Vector3(hs.x, hs.y, hs.z);
+        burst(at);
+        const lines = ["🏥 " + truncate(e.extra.hospital, 34), "Specialists: " + truncate(e.extra.department || e.extra.condition, 30)];
+        lines.forEach((t, k) => {
+          const l = makeLabel(t, "#ffc46e", k === 0);
+          // above the gas cloud (radius ~10), so it never tangles with its labels
+          l.position.copy(at).add(new THREE.Vector3(0, 16 - k * 2.4, 0));
+          l.material.opacity = 0;
+          l.userData = { fadeIn: 0 };
+          scene.add(l);
+          burstLabels.push(l);
+        });
+      });
     }
 
     function showDetail(star, i) {
@@ -1084,7 +1398,8 @@ __THREE_JS_TAG__
         const s = sprite.userData.star;
         const i = sprite.userData.index;
         const clusterOn = clusterVisible[String(s.cluster)];
-        const topicText = (s.topics || []).map(t => (topics[t] ? topics[t].label : t)).join(" ").toLowerCase();
+        const topicText = ((s.topics || []).map(t => (topics[t] ? topics[t].label : t)).join(" ") + " " +
+          ((s.analysis && s.analysis.subject) || "")).toLowerCase();
         const matchesSearch = !term || s.text.toLowerCase().includes(term) || topicText.includes(term);
         const visible = clusterOn && matchesSearch;
         matchByIndex[i] = visible;
@@ -1163,6 +1478,19 @@ __THREE_JS_TAG__
           l.position.copy(w).addScaledVector(up, -(2.3 + l.userData.slot * 1.75) * (window.innerWidth <= 720 ? 0.62 : 1));
         });
       }
+      for (let b = bursts.length - 1; b >= 0; b--) {
+        const bu = bursts[b];
+        bu.age++;
+        const arr = bu.pts.geometry.attributes.position.array;
+        const drag = Math.pow(0.965, bu.age);
+        bu.vel.forEach((v, k) => { arr[k * 3] += v.x * drag; arr[k * 3 + 1] += v.y * drag; arr[k * 3 + 2] += v.z * drag; });
+        bu.pts.geometry.attributes.position.needsUpdate = true;
+        bu.pts.material.opacity = Math.max(0, 1 - bu.age / 110);
+        if (bu.age > 110) { scene.remove(bu.pts); disposeObject(bu.pts); bursts.splice(b, 1); }
+      }
+      burstLabels.forEach(l => {
+        if (l.userData.fadeIn < 1) { l.userData.fadeIn = Math.min(1, l.userData.fadeIn + 0.03); l.material.opacity = l.userData.fadeIn; }
+      });
       for (const cl of clouds) {
         if (!cl) continue;
         const g = cl.group;

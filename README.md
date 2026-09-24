@@ -10,7 +10,7 @@ It's a small, local tool for noticing the shape of your own mind over time.
 
 ## Why this is different
 
-This is **not** a wrapper around an LLM API. There's no API key, no network call, no per-entry cost, and your writing never leaves your machine. Every "smart" behavior — where a thought is positioned, which thoughts are related, what a theme should be called, whether a theme has gone quiet, which thoughts are genuinely novel — comes from small, fast, fully local, fully inspectable unsupervised machine learning:
+The core is **not** a wrapper around an LLM API. Run locally, there's no API key, no network call, no per-entry cost, and your writing never leaves your machine. (The optional hosted site can add Claude on top for richer gas clouds; see [The hosted site](#the-hosted-site-private-galaxies-and-claude-powered-gas-clouds).) Every "smart" behavior — where a thought is positioned, which thoughts are related, what a theme should be called, whether a theme has gone quiet, which thoughts are genuinely novel — comes from small, fast, fully local, fully inspectable unsupervised machine learning:
 
 ```
 your text
@@ -153,31 +153,39 @@ pip install pytest
 pytest tests/ -v
 ```
 
+## The hosted site: private galaxies and Claude-powered gas clouds
+
+Deployed on Vercel, MindGalaxy is multi-user. Everyone signs up with a **username and a 4-digit passkey** and only ever sees their own galaxy.
+
+A 4-digit passkey has only 10,000 possible values, so the protection is rate limiting, not the passkey itself: an account locks for 15 minutes after 5 wrong passkeys, a network may make at most 30 failed sign-ins an hour, and at most 5 sign-ups a day. Passkeys are stored as salted PBKDF2 hashes. Don't reuse a bank or phone PIN.
+
+When `ANTHROPIC_API_KEY` is set, Claude takes over the knowledge layer (`mindgalaxy/ai.py`):
+
+- **Explore any subject, level by level.** Write "I like to eat noodles" and the star's gas cloud opens on the countries with a real noodle tradition. Pick Japan and it shows the kinds of noodle used there (wheat, thick wheat, buckwheat…), then dish styles (soup like ramen, stir-fried like yakisoba…), then the dishes themselves with their origin, key facts, ingredients and a home recipe. The same works for cement, diseases, cars or anything else, with the levels chosen to suit the subject. Every level is cached and shared (keyed by subject, never by user or note), so the second person to explore noodles costs nothing.
+- **Lines only between thoughts that are truly related.** Each new thought is classified, then compared with your earlier ones; Claude links them only when there's a direct, specific connection and gives the reason. Symptom, disease and hospital stars get *only* these links (no word-overlap lines): a symptom connects to a disease only if it's a recognised sign of it, and a hospital connects to a disease only if it's renowned for treating that disease, which is then checked with a live web search.
+- **Hospital bursts.** Select a disease or hospital star with a verified link and gas bursts out of the hospital star, with the specialist department beside it and a card linking to the hospital's official find-a-doctor page. MindGalaxy never names individual doctors, and it only shows URLs that came back from the web search, so a made-up link can't appear.
+- Medical gas clouds always say they're general information, not a diagnosis.
+
+Each account gets 80 uncached AI lookups a day (`MINDGALAXY_AI_DAILY_LIMIT`). The model defaults to `claude-opus-5` (`MINDGALAXY_MODEL` to change it). Without an API key everything still works, with the offline curated knowledge instead.
+
 ## Deploying to Vercel
 
-`mindgalaxy serve` is built around a single local SQLite file, and the web page it serves is a pure viewer — the only way to add an entry is the CLI (`mindgalaxy add "..."`). Neither of those fits a serverless deployment as-is:
+`index.py` is the Vercel entrypoint and `vercel.json` gives the function up to 300 s (the hospital web check can take a while). In your Vercel project → **Settings → Environment Variables**, add:
 
-- **No local disk.** `index.py` (the Vercel entrypoint) points storage at `/tmp`, the one writable path in a serverless function — but `/tmp` does not persist between invocations, so anything added disappears again almost immediately, and different instances of your function don't share it either.
-- **No way to add a thought from the browser.** The galaxy page only ever *read* data; there was no compose box wired to the existing `POST /api/entries` endpoint.
+| Variable | Required | What it's for |
+|---|---|---|
+| `SECRET_KEY` | yes | Signs login sessions. Any long random string, e.g. `python -c "import secrets; print(secrets.token_hex(32))"`. Without it the site shows a "not configured" page rather than running insecurely. |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | yes, in practice | A free [Turso](https://turso.tech) database, so accounts and thoughts survive. Without them storage falls back to `/tmp`, which is wiped on every cold start. |
+| `ANTHROPIC_API_KEY` | optional | Turns on the Claude features above. |
+| `MINDGALAXY_MODEL`, `MINDGALAXY_AI_DAILY_LIMIT` | optional | Model and per-user daily limit. |
 
-This repo now includes a fix for both:
-
-1. The galaxy page has an "Add a thought" box at the bottom (server mode only — a standalone export has no backend to write to). It posts to `/api/entries` and reloads so the new star gets folded into a freshly recomputed galaxy.
-2. `mindgalaxy/storage.py` will use [Turso](https://turso.tech) (a hosted, SQLite-compatible database with a free tier) instead of a local file whenever `TURSO_DATABASE_URL` is set — which is what makes entries survive across serverless invocations.
-
-To wire up persistence:
-
-1. Create a free Turso database (via the [Turso dashboard](https://turso.tech) or `turso db create mindgalaxy`) and grab its database URL and an auth token.
-2. In your Vercel project → **Settings → Environment Variables**, add:
-   - `TURSO_DATABASE_URL`
-   - `TURSO_AUTH_TOKEN`
-3. Redeploy. `mindgalaxy` will create the `entries` table in Turso automatically on first use, exactly like it does locally.
-
-Without those two variables set, the site still works, but entries added through the web UI will vanish on the next cold start — fine for a quick demo, not for real journaling.
+Then redeploy. New tables and columns are created in Turso automatically on first use; thoughts saved before accounts existed aren't shown to any account.
 
 ## Privacy
 
-Nothing here calls out to the network at runtime by default, with one small exception: when you open a star whose thought doesn't match any curated topic, the page asks Wikipedia's public search API about a few keywords from it (never the full text, and only when you click that star). Your entries live in a local SQLite file. Exported HTML snapshots are single files with the visualization library embedded inline — open one on a plane, no connection required. The one exception is an optional Vercel deployment configured with Turso (see above), where entries are written to that hosted database instead of a local file so they can persist across serverless requests.
+The local CLI and `mindgalaxy serve` never call out to the network, except for the Wikipedia lookup when you open a star that matches no curated topic (a few keywords, never the full text). Your entries live in a local SQLite file, and exported HTML snapshots work fully offline.
+
+On the hosted site, thoughts are stored in the site's Turso database. With `ANTHROPIC_API_KEY` set, each new thought is sent to Anthropic's Claude API to classify it and find related thoughts. Exploring a gas cloud sends only its subject (such as "noodles"), never the note.
 
 ## License
 

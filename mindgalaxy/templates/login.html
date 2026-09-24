@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mind Galaxy — Sign in</title>
+<style>
+  :root {
+    --bg-0: #05060f; --bg-1: #0b0e21; --panel: rgba(12, 14, 32, 0.86);
+    --border: rgba(255, 255, 255, 0.1); --text: #eef0ff; --muted: #8b8fb8; --accent: #8ea2ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    background: radial-gradient(ellipse at 50% 20%, var(--bg-1) 0%, var(--bg-0) 70%);
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: var(--text); overflow-x: hidden;
+  }
+  #sky { position: fixed; inset: 0; z-index: 0; }
+  .card {
+    position: relative; z-index: 1; width: min(380px, 100%); padding: 28px 26px 24px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
+    backdrop-filter: blur(12px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  h1 {
+    margin: 0 0 4px; font-size: 24px; font-weight: 600;
+    background: linear-gradient(90deg, #fff, var(--accent) 70%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 20px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; background: rgba(255,255,255,0.04); padding: 4px; border-radius: 12px; }
+  .tabs button {
+    flex: 1; font: inherit; font-size: 13px; padding: 8px; border: none; border-radius: 9px; cursor: pointer;
+    background: transparent; color: var(--muted);
+  }
+  .tabs button[aria-selected="true"] { background: rgba(255,255,255,0.1); color: var(--text); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  input[type=text] {
+    width: 100%; font: inherit; font-size: 15px; padding: 11px 13px; border-radius: 10px; outline: none;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); margin-bottom: 16px;
+  }
+  input[type=text]:focus, .pin input:focus { border-color: var(--accent); }
+  .pin { display: flex; gap: 10px; margin-bottom: 8px; }
+  .pin input {
+    width: 100%; aspect-ratio: 1; max-width: 64px; text-align: center; font: inherit; font-size: 24px;
+    border-radius: 12px; outline: none; background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border); color: var(--text); -webkit-text-security: disc;
+  }
+  .hint { font-size: 11.5px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+  .submit {
+    width: 100%; font: inherit; font-size: 14px; font-weight: 600; padding: 12px; border: none; border-radius: 11px;
+    background: var(--accent); color: #0b0e21; cursor: pointer;
+  }
+  .submit:disabled { opacity: 0.5; cursor: default; }
+  .error { display: none; color: #ff9a9a; font-size: 12.5px; margin: 12px 0 0; line-height: 1.45; }
+  .privacy { font-size: 11px; color: var(--muted); margin: 18px 0 0; line-height: 1.5; }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<main class="card">
+  <h1>Mind Galaxy</h1>
+  <p class="sub">Your thoughts become stars. Sign in to your own private galaxy.</p>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-login" aria-selected="true">Sign in</button>
+    <button type="button" role="tab" id="tab-signup" aria-selected="false">Create account</button>
+  </div>
+  <form id="form" novalidate>
+    <label for="username">Username</label>
+    <input type="text" id="username" autocomplete="username" autocapitalize="none" spellcheck="false"
+           maxlength="24" placeholder="e.g. stargazer_42" required />
+    <label id="pin-label">4-digit passkey</label>
+    <div class="pin" role="group" aria-labelledby="pin-label">
+      <input type="text" inputmode="numeric" aria-label="Digit 1" autocomplete="off" />
+      <input type="text" inputmode="numeric" aria-label="Digit 2" autocomplete="off" />
+      <input type="text" inputmode="numeric" aria-label="Digit 3" autocomplete="off" />
+      <input type="text" inputmode="numeric" aria-label="Digit 4" autocomplete="off" />
+    </div>
+    <p class="hint" id="hint">5 wrong passkeys lock the account for 15 minutes.</p>
+    <button class="submit" id="submit" type="submit">Sign in</button>
+    <p class="error" id="error" role="alert"></p>
+  </form>
+  <p class="privacy">Don't reuse a bank or phone PIN here. Thoughts are stored on this site's database and,
+    to build their gas clouds, sent to Anthropic's Claude API.</p>
+</main>
+<script>
+(function () {
+  "use strict";
+  let mode = "login";
+  const tabs = { login: document.getElementById("tab-login"), signup: document.getElementById("tab-signup") };
+  const submit = document.getElementById("submit");
+  const errorEl = document.getElementById("error");
+  const hint = document.getElementById("hint");
+  const user = document.getElementById("username");
+  const digits = [...document.querySelectorAll(".pin input")];
+
+  function setMode(m) {
+    mode = m;
+    tabs.login.setAttribute("aria-selected", m === "login");
+    tabs.signup.setAttribute("aria-selected", m === "signup");
+    submit.textContent = m === "login" ? "Sign in" : "Create my galaxy";
+    hint.textContent = m === "login"
+      ? "5 wrong passkeys lock the account for 15 minutes."
+      : "Username: 3–24 letters, numbers or underscores. Pick any 4 digits you'll remember.";
+    errorEl.style.display = "none";
+  }
+  tabs.login.addEventListener("click", () => setMode("login"));
+  tabs.signup.addEventListener("click", () => setMode("signup"));
+
+  // Spread digits from box i onward -- handles one keystroke, fast typing,
+  // pasting and autofill alike.
+  function fill(i, text) {
+    const t = text.replace(/\D/g, "");
+    if (!t) return false;
+    t.split("").slice(0, 4 - i).forEach((c, j) => { digits[i + j].value = c; });
+    digits[Math.min(i + t.length, 3)].focus();
+    return true;
+  }
+  digits.forEach((d, i) => {
+    d.addEventListener("input", () => {
+      const v = d.value;
+      d.value = "";
+      fill(i, v);
+    });
+    d.addEventListener("keydown", e => {
+      if (e.key === "Backspace" && !d.value && i > 0) digits[i - 1].focus();
+    });
+    d.addEventListener("paste", e => {
+      const t = e.clipboardData.getData("text") || "";
+      if (fill(t.replace(/\D/g, "").length >= 4 ? 0 : i, t)) e.preventDefault();
+    });
+  });
+
+  function showError(msg) { errorEl.textContent = msg; errorEl.style.display = "block"; }
+
+  document.getElementById("form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const username = user.value.trim().toLowerCase();
+    const pin = digits.map(d => d.value).join("");
+    if (!/^[a-z0-9_]{3,24}$/.test(username)) return showError("Username must be 3–24 letters, numbers or underscores.");
+    if (!/^\d{4}$/.test(pin)) return showError("Enter all 4 digits of your passkey.");
+    submit.disabled = true;
+    errorEl.style.display = "none";
+    try {
+      const res = await fetch(mode === "login" ? "/api/login" : "/api/signup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, pin }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Something went wrong — try again.");
+      window.location.href = "/";
+    } catch (err) {
+      showError(err.message);
+      digits.forEach(d => (d.value = ""));
+      digits[0].focus();
+      submit.disabled = false;
+    }
+  });
+
+  // a slow, drifting starfield behind the card
+  const c = document.getElementById("sky"), ctx = c.getContext("2d");
+  let stars = [];
+  function resize() {
+    c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio;
+    stars = Array.from({ length: 220 }, () => ({
+      x: Math.random() * c.width, y: Math.random() * c.height,
+      r: (Math.random() * 1.3 + 0.3) * devicePixelRatio, s: Math.random() * 0.15 + 0.03, p: Math.random() * 6.28,
+    }));
+  }
+  addEventListener("resize", resize); resize();
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  (function frame(t) {
+    ctx.clearRect(0, 0, c.width, c.height);
+    for (const s of stars) {
+      if (!still) { s.y -= s.s; if (s.y < 0) s.y = c.height; }
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(t / 900 + s.p);
+      ctx.fillStyle = "#cfd6ff";
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  })(0);
+  user.focus();
+})();
+</script>
+</body>
+</html>

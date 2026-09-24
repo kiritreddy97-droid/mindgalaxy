@@ -14,8 +14,8 @@ variables (see README.md, "Deploying to Vercel"):
 * TURSO_DATABASE_URL / TURSO_AUTH_TOKEN -- required for accounts and
                         entries to persist (without them storage falls back
                         to /tmp, which is wiped on every cold start).
-* ANTHROPIC_API_KEY  -- optional; turns on Claude-powered gas clouds and
-                        truly-related links.
+* GEMINI_API_KEY / GROQ_API_KEY / ... -- optional, free; turn on AI gas
+                        clouds and truly-related links (see README.md).
 """
 import os
 

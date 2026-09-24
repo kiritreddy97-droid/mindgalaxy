@@ -2,9 +2,10 @@
 mindgalaxy.ai
 ==============
 
-Claude-backed knowledge for the hosted site. Enabled when ANTHROPIC_API_KEY
-is set; without it the galaxy falls back to the offline curated knowledge
-in knowledge.py.
+AI-backed knowledge for the hosted site. Answers come from free AI providers
+first (Gemini, Groq, OpenRouter ... -- see free_ai.py), falling back to
+Claude when ANTHROPIC_API_KEY is set. With neither configured the galaxy uses
+the offline curated knowledge in knowledge.py.
 
 * analyze(text)        -> what a thought is about: a category (food,
                           disease, hospital, ...) and a canonical subject
@@ -22,9 +23,12 @@ in knowledge.py.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from typing import Any, Optional
+
+from .free_ai import FreeProvider, ProviderError, providers_from_env, wikipedia_evidence
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -157,6 +161,24 @@ specifically? Search for real evidence such as national rankings, a dedicated ce
 this condition, or notable outcomes. Also find the hospital's own official web page for finding a
 doctor or specialist (for that department if possible). Report what you found, with the URLs."""
 
+VERIFY_WIKIPEDIA_SCHEMA = _obj({
+    "same_hospital": {"type": "boolean"},
+    "recognized": {"type": "boolean"},
+    "why": _STR,
+    "department": _STR,
+})
+
+VERIFY_WIKIPEDIA = """Below is the Wikipedia article "{title}". First decide whether it is about the hospital
+"{hospital}" at all (same_hospital). Then decide whether the article gives concrete evidence that this
+hospital is nationally or internationally recognised for treating {condition} specifically -- for example
+a ranking, a dedicated centre or institute for it, or notable firsts or outcomes. recognized must be false
+if the article only says the hospital is large, famous or general, or never mentions this condition or its
+specialty. why: one or two sentences a patient could understand, based only on the article.
+department: the relevant department or centre named in the article, or an empty string.
+
+Article:
+{text}"""
+
 VERIFY_STRUCTURE = """From the research notes below, decide whether {hospital} is genuinely recognised for
 treating {condition}. recognized must be false unless the notes contain concrete evidence.
 why: one or two sentences a patient could understand. department: the relevant department or centre.
@@ -172,13 +194,29 @@ Research notes:
 
 
 class KnowledgeAI:
-    def __init__(self, client: Any = None, model: Optional[str] = None):
+    def __init__(self, client: Any = None, model: Optional[str] = None,
+                 free_providers: Optional[list[FreeProvider]] = None):
         self.model = model or os.environ.get("MINDGALAXY_MODEL", DEFAULT_MODEL)
         self._client = client
+        self.free = providers_from_env() if free_providers is None else free_providers
+
+    @property
+    def claude_on(self) -> bool:
+        if self._client is not None:
+            return True
+        # Claude is optional (pip install mindgalaxy[claude]); a key alone isn't enough.
+        return bool(os.environ.get("ANTHROPIC_API_KEY")) and importlib.util.find_spec("anthropic") is not None
 
     @property
     def enabled(self) -> bool:
-        return self._client is not None or bool(os.environ.get("ANTHROPIC_API_KEY"))
+        return bool(self.free) or self.claude_on
+
+    @property
+    def name(self) -> str:
+        """Identifies the answer source, so cached answers are kept per source."""
+        if self.free:
+            return "free:" + ",".join(f"{p.name}/{p.model}" for p in self.free)
+        return self.model
 
     @property
     def client(self) -> Any:
@@ -207,6 +245,17 @@ class KnowledgeAI:
         return resp
 
     def _json(self, system: str, user: str, schema: dict[str, Any], effort: str) -> dict[str, Any]:
+        """Ask the free providers in turn; Claude (if configured) is the last resort."""
+        for provider in self.free:
+            try:
+                return provider.complete_json(system, user, schema)
+            except ProviderError:
+                continue  # rate-limited, out of quota or down: try the next one
+        if self.claude_on:
+            return self._claude_json(system, user, schema, effort)
+        raise AIError("The free AI services are busy or out of today's quota. Try again in a little while.")
+
+    def _claude_json(self, system: str, user: str, schema: dict[str, Any], effort: str) -> dict[str, Any]:
         resp = self._request(
             max_tokens=16000, system=system,
             messages=[{"role": "user", "content": user}],
@@ -250,6 +299,33 @@ class KnowledgeAI:
         return links[:6]
 
     def verify_hospital(self, hospital: str, location: str, condition: str) -> Optional[dict[str, Any]]:
+        """Is this hospital genuinely renowned for treating this condition?"""
+        if self.free or not self.claude_on:
+            return self._verify_with_wikipedia(hospital, location, condition)
+        return self._verify_with_web_search(hospital, location, condition)
+
+    def _verify_with_wikipedia(self, hospital: str, location: str, condition: str) -> Optional[dict[str, Any]]:
+        """Free route: judge from the hospital's Wikipedia article; link its
+        official website from Wikidata. Both URLs come from Wikimedia, never
+        from the model."""
+        try:
+            page = wikipedia_evidence(hospital, location)
+        except ProviderError as e:
+            raise AIError("Couldn't reach Wikipedia to check the hospital.") from e
+        if not page:
+            return None
+        out = self._json(
+            "You check claims carefully and only accept concrete evidence from the text you are given.",
+            VERIFY_WIKIPEDIA.format(hospital=hospital, condition=condition, title=page["title"], text=page["text"]),
+            VERIFY_WIKIPEDIA_SCHEMA, effort="medium",
+        )
+        if not (out.get("same_hospital") and out.get("recognized")):
+            return None
+        return {"hospital": hospital, "location": location, "condition": condition,
+                "why": out.get("why", ""), "department": out.get("department", ""),
+                "find_doctor_url": page["website"], "evidence_urls": [page["url"]]}
+
+    def _verify_with_web_search(self, hospital: str, location: str, condition: str) -> Optional[dict[str, Any]]:
         loc = f" ({location})" if location else ""
         messages: list[dict[str, Any]] = [{"role": "user", "content": VERIFY_RESEARCH.format(
             hospital=hospital, loc=loc, condition=condition)}]

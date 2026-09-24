@@ -181,6 +181,49 @@ __THREE_JS_TAG__
   #user-chip button:hover { background: rgba(255,255,255,0.1); }
   #composer-status { display: none; color: var(--accent); font-size: 11.5px; padding: 0 16px 10px; }
 
+  .creator-badge { font-size: 11px; color: var(--muted); padding: 3px 10px; border-radius: 20px; border: 1px solid rgba(255,210,122,0.35); background: rgba(255,210,122,0.07); white-space: nowrap; }
+  .creator-badge a { color: var(--gold); font-weight: 600; text-decoration: none; }
+  .creator-badge a:hover, .creator-badge a:focus-visible { text-decoration: underline; }
+
+  /* ---- history calendar ---- */
+  .pill-btn { font: inherit; font-size: 11.5px; padding: 3px 11px; border-radius: 20px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .pill-btn:hover, .pill-btn[aria-expanded="true"] { background: rgba(255,255,255,0.1); }
+  #history-panel { display: none; top: 150px; left: 26px; width: 300px; max-height: calc(100vh - 250px); overflow-y: auto; padding: 14px; z-index: 25; }
+  #history-panel.open { display: block; }
+  body.history-open #legend { display: none; }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .cal-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+  .cal-nav { font: inherit; font-size: 15px; line-height: 1; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+  .cal-nav:disabled { opacity: 0.3; cursor: default; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal-dow { font-size: 10px; text-align: center; color: var(--muted); padding-bottom: 4px; }
+  .cal-day { position: relative; aspect-ratio: 1; font: inherit; font-size: 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: default; padding: 0; }
+  .cal-day.has { color: var(--text); cursor: pointer; background: rgba(142,162,255,var(--glow, 0.12)); }
+  .cal-day.has:hover { border-color: rgba(255,255,255,0.3); }
+  .cal-day.has::after { content: attr(data-count); position: absolute; right: 3px; bottom: 1px; font-size: 8.5px; color: var(--gold); }
+  .cal-day.today { border-color: rgba(142,162,255,0.6); }
+  .cal-day[aria-pressed="true"] { background: var(--accent); color: #0b0e21; font-weight: 700; }
+  .cal-day[aria-pressed="true"]::after { color: #0b0e21; }
+  .cal-summary { font-size: 11.5px; color: var(--muted); margin: 10px 0 6px; }
+  .cal-list { margin-top: 4px; }
+  .cal-entry { display: block; width: 100%; text-align: left; font: inherit; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 9px; padding: 7px 9px; margin-bottom: 6px; color: var(--text); }
+  .cal-entry:hover { background: rgba(255,255,255,0.08); }
+  .cal-entry .tm { font-size: 10.5px; color: var(--accent); }
+  .cal-entry .tx { font-size: 12px; line-height: 1.45; margin-top: 2px; }
+  #day-chip { display: none; margin-top: 6px; font-size: 11.5px; color: var(--text); }
+  #day-chip button { margin-left: 6px; }
+
+  /* ---- idle sign-out pop-up ---- */
+  #idle-modal { position: fixed; inset: 0; z-index: 100; display: none; align-items: center; justify-content: center; background: rgba(3,4,12,0.62); backdrop-filter: blur(3px); padding: 16px; }
+  #idle-modal.open { display: flex; }
+  #idle-modal .box { width: min(360px, 100%); text-align: center; padding: 24px 22px 20px; }
+  #idle-modal h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  #idle-modal p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+  #idle-timer { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 14px 0; color: var(--gold); }
+  #idle-modal .row { display: flex; gap: 8px; margin-top: 16px; }
+  #idle-modal .row button { flex: 1; font: inherit; font-size: 13px; padding: 10px; border-radius: 10px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text); }
+  #idle-modal .row button.primary { background: var(--accent); color: #0b0e21; border-color: var(--accent); font-weight: 600; }
+
   #detail-panel .close-btn {
     position: absolute; top: 12px; right: 14px; cursor: pointer; color: var(--muted);
     font-size: 18px; line-height: 1; background: none; border: none;
@@ -245,6 +288,8 @@ __THREE_JS_TAG__
     #legend { top: 128px; left: 16px; width: 190px; max-height: 26vh; }
     #user-chip span { display: none; }
     #user-chip { margin-left: auto; }
+    #history-panel { top: 128px; left: 16px; right: 16px; width: auto; max-height: 52vh; }
+    body.history-open #search-box { display: none; }
     #controls-hint { display: none; }
     #replay-btn { bottom: 92px; right: 16px; }
     #composer-wrap { width: calc(100vw - 32px); bottom: 16px; }
@@ -268,8 +313,11 @@ __THREE_JS_TAG__
 <div class="hud" id="header">
   <div class="title-row">
     <h1 id="page-title">__GALAXY_TITLE__</h1>
+    <span class="creator-badge">Created &amp; maintained by <a href="https://kiritreddy-daida.netlify.app/" target="_blank" rel="noopener">Kiritreddy Daida</a></span>
+    <button class="pill-btn" id="history-btn" type="button" aria-expanded="false" aria-controls="history-panel" style="display:none">📅 History</button>
     <div id="user-chip"><span>Signed in as <b id="user-name"></b></span><button id="logout-btn" type="button">Sign out</button></div>
   </div>
+  <div id="day-chip" role="status"></div>
   <div class="subtitle">A living map of your own thinking — every star is a thought, positioned by what it means, not when you wrote it. Nearby stars think alike. Lines are conceptual kinship; teal dashed lines link thoughts whose topics are related. Each star glows with a gas cloud of knowledge about what it's about — click one to explore. Gold stars are ideas nothing else in your galaxy resembles yet.</div>
   <div id="stats-line"></div>
 </div>
@@ -282,6 +330,29 @@ __THREE_JS_TAG__
 <div class="hud panel" id="legend">
   <h3>Constellations</h3>
   <div id="legend-list"></div>
+</div>
+
+<div class="hud panel" id="history-panel" role="region" aria-label="Thought history by date">
+  <div class="cal-head">
+    <button class="cal-nav" id="cal-prev" type="button" aria-label="Previous month">‹</button>
+    <h3 id="cal-title"></h3>
+    <button class="cal-nav" id="cal-next" type="button" aria-label="Next month">›</button>
+  </div>
+  <div class="cal-grid" id="cal-grid"></div>
+  <div class="cal-summary" id="cal-summary"></div>
+  <div class="cal-list" id="cal-list"></div>
+</div>
+
+<div id="idle-modal" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" aria-describedby="idle-desc">
+  <div class="panel box">
+    <h2 id="idle-title">Still there?</h2>
+    <p id="idle-desc">You've been inactive for a while. For your privacy you'll be signed out when the timer runs out. Move the mouse, tap or type to stay signed in.</p>
+    <div id="idle-timer" aria-live="polite">5:00</div>
+    <div class="row">
+      <button type="button" id="idle-logout">Sign out now</button>
+      <button type="button" class="primary" id="idle-stay">Stay signed in</button>
+    </div>
+  </div>
 </div>
 
 <div class="hud panel" id="controls-hint">
@@ -350,6 +421,7 @@ __THREE_JS_TAG__
       if (me.username) {
         document.getElementById("user-name").textContent = me.username;
         document.getElementById("user-chip").style.display = "flex";
+        startIdleWatch(me);
       }
       return fetch("/api/stars").then(r => r.json());
     }).then(boot).catch(err => { if (err.message !== "signed out") boot(null); });
@@ -357,6 +429,79 @@ __THREE_JS_TAG__
       fetch("/api/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
         .finally(() => { window.location.href = "/login"; });
     });
+  }
+
+  // Stored times are UTC without a zone suffix; read them as UTC so they
+  // show in the viewer's local time.
+  function parseTime(iso) {
+    return new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + "Z");
+  }
+  function dayKey(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // ---------------------------------------------------------------
+  // Idle sign-out: signed in for as long as you're active. After 5 quiet
+  // minutes a pop-up counts down 5 more; any mouse movement, tap, scroll or
+  // key press cancels it. Activity is shared across tabs, and a heartbeat
+  // keeps the server-side session (which has its own idle limit) alive.
+  // ---------------------------------------------------------------
+  function startIdleWatch(me) {
+    const WARN = (me.idle_warn_seconds || 300) * 1000;
+    const COUNTDOWN = (me.idle_countdown_seconds || 300) * 1000;
+    const KEY = "mg-last-activity";
+    const modal = document.getElementById("idle-modal");
+    const timerEl = document.getElementById("idle-timer");
+    let last = Date.now(), lastPing = Date.now(), open = false, leaving = false;
+
+    function shared() { try { return Number(localStorage.getItem(KEY)) || 0; } catch (e) { return 0; } }
+    function close() { open = false; modal.classList.remove("open"); }
+    function signOut(reason) {
+      if (leaving) return;
+      leaving = true;
+      fetch("/api/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .catch(() => null)
+        .finally(() => { window.location.href = "/login?reason=" + reason; });
+    }
+    function ping() {
+      fetch("/api/ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .then(r => { if (r.status === 401) signOut("expired"); })
+        .catch(() => null);
+    }
+    function activity() {
+      if (leaving) return;
+      const now = Date.now();
+      if (open) close();
+      if (now - last < 1000) return;
+      last = now;
+      try { localStorage.setItem(KEY, String(now)); } catch (e) { /* private mode: this tab only */ }
+      if (now - lastPing > 60 * 1000) { lastPing = now; ping(); }
+    }
+    ["pointermove", "pointerdown", "keydown", "wheel", "touchstart", "scroll"].forEach(ev =>
+      window.addEventListener(ev, activity, { passive: true, capture: true }));
+    window.addEventListener("storage", e => { if (e.key === KEY && open) close(); });
+    document.getElementById("idle-stay").addEventListener("click", activity);
+    document.getElementById("idle-logout").addEventListener("click", () => signOut("manual"));
+
+    function tick() {
+      if (leaving) return;
+      const idle = Date.now() - Math.max(last, shared());
+      if (idle >= WARN + COUNTDOWN) { signOut("idle"); return; }
+      if (idle >= WARN) {
+        if (!open) {
+          open = true;
+          modal.classList.add("open");
+          document.getElementById("idle-stay").focus({ preventScroll: true });
+        }
+        const left = Math.max(0, Math.ceil((WARN + COUNTDOWN - idle) / 1000));
+        timerEl.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+      } else if (open) {
+        close();
+      }
+    }
+    setInterval(tick, 1000);
+    // background tabs throttle timers; re-check the moment the tab is visible again
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
   }
 
   // ---------------------------------------------------------------
@@ -476,7 +621,7 @@ __THREE_JS_TAG__
     const clusters = data.clusters || {};
 
     document.getElementById("stats-line").innerHTML =
-      `<b>${stars.length}</b> stars &nbsp;·&nbsp; <b>${Object.keys(clusters).length}</b> constellations &nbsp;·&nbsp; generated ${new Date(data.generated_at).toLocaleString()}`;
+      `<b>${stars.length}</b> stars &nbsp;·&nbsp; <b>${Object.keys(clusters).length}</b> constellations &nbsp;·&nbsp; generated ${parseTime(data.generated_at).toLocaleString()}`;
 
     // ---- scene setup ----
     const holder = document.getElementById("canvas-holder");
@@ -510,6 +655,7 @@ __THREE_JS_TAG__
     // ---- stars ----
     const starMeshes = [];
     const clusterVisible = {};
+    let dayFilter = null; // "YYYY-MM-DD" in local time, set from the history calendar
     Object.keys(clusters).forEach(c => (clusterVisible[c] = true));
 
     stars.forEach((s, i) => {
@@ -1299,7 +1445,7 @@ __THREE_JS_TAG__
 
     function showDetail(star, i) {
       document.getElementById("detail-cluster").textContent = star.cluster_name;
-      document.getElementById("detail-date").textContent = new Date(star.created_at).toLocaleString(undefined, {
+      document.getElementById("detail-date").textContent = parseTime(star.created_at).toLocaleString(undefined, {
         year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit",
       });
       document.getElementById("detail-text").textContent = star.text;
@@ -1401,7 +1547,7 @@ __THREE_JS_TAG__
         const topicText = ((s.topics || []).map(t => (topics[t] ? topics[t].label : t)).join(" ") + " " +
           ((s.analysis && s.analysis.subject) || "")).toLowerCase();
         const matchesSearch = !term || s.text.toLowerCase().includes(term) || topicText.includes(term);
-        const visible = clusterOn && matchesSearch;
+        const visible = clusterOn && matchesSearch && (!dayFilter || dayKey(parseTime(s.created_at)) === dayFilter);
         matchByIndex[i] = visible;
         sprite.material.opacity = visible ? sprite.userData.baseOpacity : 0.03;
         sprite.scale.setScalar(term && visible ? sprite.userData.baseScale * 1.5 : sprite.userData.baseScale);
@@ -1413,12 +1559,115 @@ __THREE_JS_TAG__
         const clustersOn = onA && onB;
         const endpointsMatch = matchByIndex[line.userData.sourceIdx] && matchByIndex[line.userData.targetIdx];
         line.visible = clustersOn;
-        line.material.opacity = (clustersOn && (!term || endpointsMatch)) ? line.userData.baseOpacity : 0.02;
+        line.material.opacity = (clustersOn && (!(term || dayFilter) || endpointsMatch)) ? line.userData.baseOpacity : 0.02;
       });
       if (selected >= 0) highlightEdges(selected);
     }
 
     document.getElementById("search-input").addEventListener("input", e => applyVisibility(e.target.value));
+
+    // ---- history calendar: browse thoughts by the day you wrote them ----
+    const byDay = {};
+    stars.forEach((s, i) => { const k = dayKey(parseTime(s.created_at)); (byDay[k] = byDay[k] || []).push(i); });
+    const busiest = Math.max(1, ...Object.values(byDay).map(v => v.length));
+    const monthsWith = Object.keys(byDay).map(k => k.slice(0, 7)).sort();
+    const firstMonth = monthsWith[0], lastMonth = monthsWith[monthsWith.length - 1];
+    let calMonth = lastMonth; // "YYYY-MM"
+    const histPanel = document.getElementById("history-panel");
+    const histBtn = document.getElementById("history-btn");
+    const monthFmt = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
+    const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+    const dowFmt = new Intl.DateTimeFormat(undefined, { weekday: "narrow" });
+    function keyToDate(k) { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d || 1); }
+    function shiftMonth(ym, n) { const d = keyToDate(ym + "-01"); d.setMonth(d.getMonth() + n); return dayKey(d).slice(0, 7); }
+
+    function renderCalendar() {
+      const first = keyToDate(calMonth + "-01");
+      document.getElementById("cal-title").textContent = monthFmt.format(first);
+      document.getElementById("cal-prev").disabled = calMonth <= firstMonth;
+      document.getElementById("cal-next").disabled = calMonth >= lastMonth;
+      const grid = document.getElementById("cal-grid");
+      grid.innerHTML = "";
+      for (let d = 0; d < 7; d++) grid.appendChild(el("div", "cal-dow", dowFmt.format(new Date(2026, 1, 1 + d)))); // Feb 1 2026 is a Sunday
+      for (let b = 0; b < first.getDay(); b++) grid.appendChild(el("div"));
+      const days = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+      const today = dayKey(new Date());
+      let monthTotal = 0;
+      for (let d = 1; d <= days; d++) {
+        const k = `${calMonth}-${String(d).padStart(2, "0")}`;
+        const n = (byDay[k] || []).length;
+        monthTotal += n;
+        const cell = el("button", "cal-day" + (n ? " has" : "") + (k === today ? " today" : ""), String(d));
+        cell.type = "button";
+        cell.setAttribute("aria-label", `${dayFmt.format(keyToDate(k))}: ${n ? n + (n === 1 ? " thought" : " thoughts") : "no thoughts"}`);
+        if (n) {
+          cell.dataset.count = n;
+          cell.style.setProperty("--glow", (0.12 + 0.4 * n / busiest).toFixed(2));
+          cell.setAttribute("aria-pressed", String(k === dayFilter));
+          cell.addEventListener("click", () => setDay(k === dayFilter ? null : k));
+        } else {
+          cell.disabled = true;
+        }
+        grid.appendChild(cell);
+      }
+      const summary = document.getElementById("cal-summary");
+      const list = document.getElementById("cal-list");
+      list.innerHTML = "";
+      if (dayFilter && byDay[dayFilter]) {
+        const idx = byDay[dayFilter].slice().sort((a, b) => parseTime(stars[a].created_at) - parseTime(stars[b].created_at));
+        summary.textContent = `${idx.length} ${idx.length === 1 ? "thought" : "thoughts"} on ${dayFmt.format(keyToDate(dayFilter))}`;
+        idx.forEach(i => {
+          const b = el("button", "cal-entry");
+          b.type = "button";
+          b.appendChild(el("div", "tm", timeFmt.format(parseTime(stars[i].created_at))));
+          b.appendChild(el("div", "tx", truncate(stars[i].text, 140)));
+          b.addEventListener("click", () => selectStar(i));
+          list.appendChild(b);
+        });
+      } else {
+        summary.textContent = monthTotal
+          ? `${monthTotal} ${monthTotal === 1 ? "thought" : "thoughts"} this month — pick a day to see them.`
+          : "No thoughts this month.";
+      }
+    }
+
+    function setDay(k) {
+      dayFilter = k;
+      if (k) calMonth = k.slice(0, 7);
+      renderCalendar();
+      applyVisibility(document.getElementById("search-input").value);
+      const chip = document.getElementById("day-chip");
+      chip.innerHTML = "";
+      if (k) {
+        chip.appendChild(document.createTextNode("Showing " + dayFmt.format(keyToDate(k))));
+        const clear = el("button", "pill-btn", "Show all days");
+        clear.type = "button";
+        clear.addEventListener("click", () => setDay(null));
+        chip.appendChild(clear);
+        chip.style.display = "block";
+        if (selected < 0) {
+          // fly to the middle of that day's stars
+          const c = new THREE.Vector3();
+          byDay[k].forEach(i => c.add(new THREE.Vector3(stars[i].x, stars[i].y, stars[i].z)));
+          flyTo(c.divideScalar(byDay[k].length), byDay[k].length > 1 ? 90 : 60);
+        }
+      } else {
+        chip.style.display = "none";
+        if (selected < 0) flyTo(new THREE.Vector3(0, 0, 0), 130);
+      }
+    }
+
+    function toggleHistory(open) {
+      histPanel.classList.toggle("open", open);
+      document.body.classList.toggle("history-open", open);
+      histBtn.setAttribute("aria-expanded", String(open));
+      if (open) renderCalendar();
+    }
+    histBtn.style.display = "inline-flex";
+    histBtn.addEventListener("click", () => toggleHistory(!histPanel.classList.contains("open")));
+    document.getElementById("cal-prev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });
+    document.getElementById("cal-next").addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); });
 
     // ---- replay formation (time-lapse) ----
     let replaying = false;
@@ -1426,7 +1675,7 @@ __THREE_JS_TAG__
       if (replaying) return;
       replaying = true;
       document.getElementById("replay-label").textContent = "Replaying…";
-      const ordered = starMeshes.slice().sort((a, b) => new Date(a.userData.star.created_at) - new Date(b.userData.star.created_at));
+      const ordered = starMeshes.slice().sort((a, b) => parseTime(a.userData.star.created_at) - parseTime(b.userData.star.created_at));
       ordered.forEach(sprite => {
         sprite.scale.setScalar(0.001); sprite.material.opacity = 0;
         const cl = clouds[sprite.userData.index];

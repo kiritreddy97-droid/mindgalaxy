@@ -10,7 +10,7 @@ It's a small, local tool for noticing the shape of your own mind over time.
 
 ## Why this is different
 
-The core is **not** a wrapper around an LLM API. Run locally, there's no API key, no network call, no per-entry cost, and your writing never leaves your machine. (The optional hosted site can add Claude on top for richer gas clouds; see [The hosted site](#the-hosted-site-private-galaxies-and-claude-powered-gas-clouds).) Every "smart" behavior — where a thought is positioned, which thoughts are related, what a theme should be called, whether a theme has gone quiet, which thoughts are genuinely novel — comes from small, fast, fully local, fully inspectable unsupervised machine learning:
+The core is **not** a wrapper around an LLM API. Run locally, there's no API key, no network call, no per-entry cost, and your writing never leaves your machine. (The optional hosted site can add a free AI provider on top for richer gas clouds; see [The hosted site](#the-hosted-site-private-galaxies-and-ai-gas-clouds).) Every "smart" behavior — where a thought is positioned, which thoughts are related, what a theme should be called, whether a theme has gone quiet, which thoughts are genuinely novel — comes from small, fast, fully local, fully inspectable unsupervised machine learning:
 
 ```
 your text
@@ -153,31 +153,44 @@ pip install pytest
 pytest tests/ -v
 ```
 
-## The hosted site: private galaxies and Claude-powered gas clouds
+## The hosted site: private galaxies and AI gas clouds
 
 Deployed on Vercel, MindGalaxy is multi-user. Everyone signs up with a **username and a 4-digit passkey** and only ever sees their own galaxy.
 
 A 4-digit passkey has only 10,000 possible values, so the protection is rate limiting, not the passkey itself: an account locks for 15 minutes after 5 wrong passkeys, a network may make at most 30 failed sign-ins an hour, and at most 5 sign-ups a day. Passkeys are stored as salted PBKDF2 hashes. Don't reuse a bank or phone PIN.
 
-When `ANTHROPIC_API_KEY` is set, Claude takes over the knowledge layer (`mindgalaxy/ai.py`):
+**Idle sign-out.** You stay signed in for as long as you're using the site. After 5 minutes with no mouse movement, taps, scrolling or typing, a pop-up counts down another 5 minutes; any activity cancels it, and when it reaches zero you're signed out. Activity in any open tab counts, and the server enforces the same limit on its own, so closing the tab doesn't leave you signed in. (`MINDGALAXY_IDLE_WARN_SECONDS` / `MINDGALAXY_IDLE_COUNTDOWN_SECONDS` change the timings.)
 
-- **Explore any subject, level by level.** Write "I like to eat noodles" and the star's gas cloud opens on the countries with a real noodle tradition. Pick Japan and it shows the kinds of noodle used there (wheat, thick wheat, buckwheat…), then dish styles (soup like ramen, stir-fried like yakisoba…), then the dishes themselves with their origin, key facts, ingredients and a home recipe. The same works for cement, diseases, cars or anything else, with the levels chosen to suit the subject. Every level is cached and shared (keyed by subject, never by user or note), so the second person to explore noodles costs nothing.
-- **Lines only between thoughts that are truly related.** Each new thought is classified, then compared with your earlier ones; Claude links them only when there's a direct, specific connection and gives the reason. Symptom, disease and hospital stars get *only* these links (no word-overlap lines): a symptom connects to a disease only if it's a recognised sign of it, and a hospital connects to a disease only if it's renowned for treating that disease, which is then checked with a live web search.
-- **Hospital bursts.** Select a disease or hospital star with a verified link and gas bursts out of the hospital star, with the specialist department beside it and a card linking to the hospital's official find-a-doctor page. MindGalaxy never names individual doctors, and it only shows URLs that came back from the web search, so a made-up link can't appear.
+**History calendar.** The 📅 History button opens a month calendar of your thoughts. Days you wrote on glow brighter the more you wrote; pick one to list that day's thoughts and dim every other star in the galaxy.
+
+**AI knowledge (free by default).** With a free AI provider configured (below), the knowledge layer (`mindgalaxy/ai.py`, `mindgalaxy/free_ai.py`) does the following:
+
+- **Explore any subject, level by level.** Write "I like to eat noodles" and the star's gas cloud opens on the countries with a real noodle tradition. Pick Japan and it shows the kinds of noodle used there (wheat, thick wheat, buckwheat…), then dish styles (soup like ramen, stir-fried like yakisoba…), then the dishes themselves with their origin, key facts, ingredients and a home recipe. The same works for cement, diseases, cars or anything else. Every level is cached and shared (keyed by subject, never by user or note), so the second person to explore noodles costs nothing.
+- **Lines only between thoughts that are truly related.** Each new thought is classified, then compared with your earlier ones, and linked only when there's a direct, specific connection, with the reason shown. Symptom, disease and hospital stars get *only* these links: a symptom connects to a disease only if it's a recognised sign of it, and a hospital connects to a disease only if it's renowned for treating that disease. That's then checked against the hospital's Wikipedia article (or a live web search when Claude is the provider).
+- **Hospital bursts.** Select a disease or hospital star with a verified link and gas bursts out of the hospital star, with the specialist department beside it and a card linking to the hospital's official website (from Wikidata) or find-a-doctor page. MindGalaxy never names individual doctors, and never shows a URL the AI wrote itself.
 - Medical gas clouds always say they're general information, not a diagnosis.
 
-Each account gets 80 uncached AI lookups a day (`MINDGALAXY_AI_DAILY_LIMIT`). The model defaults to `claude-opus-5` (`MINDGALAXY_MODEL` to change it). Without an API key everything still works, with the offline curated knowledge instead.
+Free providers are tried in order, and when one is rate-limited or out of quota the next one answers:
+
+| Provider | Env var | Free allowance (at the time of writing) |
+|---|---|---|
+| [Google Gemini](https://aistudio.google.com/app/apikey) | `GEMINI_API_KEY` | ~1,500 requests/day on Flash models. Free-tier prompts may be used by Google to improve its products. |
+| [Groq](https://console.groq.com/keys) | `GROQ_API_KEY` | ~1,000 requests/day |
+| [OpenRouter](https://openrouter.ai/keys) | `OPENROUTER_API_KEY` | ~50 requests/day on `:free` models |
+| [NVIDIA NIM](https://build.nvidia.com/) | `NVIDIA_API_KEY` | free with the developer program |
+| Any OpenAI-compatible endpoint | `FREE_AI_BASE_URL`, `FREE_AI_API_KEY`, `FREE_AI_MODEL` | |
+
+Models can be overridden with `GEMINI_MODEL`, `GROQ_MODEL`, etc. None need a credit card; see [awesome-free-llm-apis](https://github.com/mnfst/awesome-free-llm-apis) for more. Claude is an optional, paid last resort: install with `pip install mindgalaxy[claude]` (or add `anthropic` to `requirements.txt`) and set `ANTHROPIC_API_KEY`. Each account gets 80 new AI lookups a day (`MINDGALAXY_AI_DAILY_LIMIT`). With no provider configured, everything still works using the offline curated knowledge.
 
 ## Deploying to Vercel
 
-`index.py` is the Vercel entrypoint and `vercel.json` gives the function up to 300 s (the hospital web check can take a while). In your Vercel project → **Settings → Environment Variables**, add:
+`index.py` is the Vercel entrypoint. In your Vercel project → **Settings → Environment Variables**, add:
 
 | Variable | Required | What it's for |
 |---|---|---|
 | `SECRET_KEY` | yes | Signs login sessions. Any long random string, e.g. `python -c "import secrets; print(secrets.token_hex(32))"`. Without it the site shows a "not configured" page rather than running insecurely. |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | yes, in practice | A free [Turso](https://turso.tech) database, so accounts and thoughts survive. Without them storage falls back to `/tmp`, which is wiped on every cold start. |
-| `ANTHROPIC_API_KEY` | optional | Turns on the Claude features above. |
-| `MINDGALAXY_MODEL`, `MINDGALAXY_AI_DAILY_LIMIT` | optional | Model and per-user daily limit. |
+| `GEMINI_API_KEY` (and/or the other free providers) | recommended | Turns on the AI features above, at no cost. |
 
 Then redeploy. New tables and columns are created in Turso automatically on first use; thoughts saved before accounts existed aren't shown to any account.
 
@@ -185,7 +198,7 @@ Then redeploy. New tables and columns are created in Turso automatically on firs
 
 The local CLI and `mindgalaxy serve` never call out to the network, except for the Wikipedia lookup when you open a star that matches no curated topic (a few keywords, never the full text). Your entries live in a local SQLite file, and exported HTML snapshots work fully offline.
 
-On the hosted site, thoughts are stored in the site's Turso database. With `ANTHROPIC_API_KEY` set, each new thought is sent to Anthropic's Claude API to classify it and find related thoughts. Exploring a gas cloud sends only its subject (such as "noodles"), never the note.
+On the hosted site, thoughts are stored in the site's Turso database. With an AI provider configured, each new thought is sent to that provider to classify it and find related thoughts; exploring a gas cloud sends only its subject (such as "noodles"), never the note. Free tiers may use what's sent to improve their models.
 
 ## License
 

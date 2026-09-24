@@ -89,9 +89,12 @@ def signup(store: Storage, username: str, pin: str, ip: str) -> User:
     validate(username, pin)
     if store.count_events("signup", ip, _now() - _dt.timedelta(days=1)) >= SIGNUPS_PER_IP_PER_DAY:
         raise AuthError("Too many new accounts from this network today. Try again tomorrow.", 429)
+    taken = AuthError("That username is taken. Pick another, or sign in if it's yours.", 409)
     if store.get_user(username):
-        raise AuthError("That username is taken. Pick another, or sign in if it's yours.", 409)
+        raise taken
     user_id = store.create_user(username, hash_pin(pin))
+    if user_id is None:
+        raise taken
     store.log_event("signup", ip)
     return User(user_id, username)
 

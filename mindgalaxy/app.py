@@ -24,6 +24,7 @@ import functools
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -39,15 +40,22 @@ LOGIN_TEMPLATE = Path(__file__).resolve().parent / "templates" / "login.html"
 AI_DAILY_LIMIT = int(os.environ.get("MINDGALAXY_AI_DAILY_LIMIT", "80"))
 MAX_ENTRY_CHARS = 2000
 MAX_PATH_DEPTH = 5
+# Idle sign-out: after 5 quiet minutes the page shows a 5-minute countdown;
+# the server independently ends sessions untouched for longer than both.
+IDLE_WARN_SECONDS = int(os.environ.get("MINDGALAXY_IDLE_WARN_SECONDS", str(5 * 60)))
+IDLE_COUNTDOWN_SECONDS = int(os.environ.get("MINDGALAXY_IDLE_COUNTDOWN_SECONDS", str(5 * 60)))
+IDLE_LIMIT = _dt.timedelta(seconds=IDLE_WARN_SECONDS + IDLE_COUNTDOWN_SECONDS + 60)
 
 
 def _client_ip() -> str:
-    # Vercel sets these itself; locally they're absent and remote_addr is used.
-    real = request.headers.get("X-Real-IP")
-    if real:
-        return real.strip()
-    fwd = request.headers.get("X-Forwarded-For", "")
-    return fwd.split(",")[0].strip() or (request.remote_addr or "unknown")
+    # Vercel's edge overwrites these headers with the real client address, so
+    # they're trustworthy there. Anywhere else a client could forge them to
+    # dodge the per-network limits, so use the socket's address instead.
+    if os.environ.get("VERCEL"):
+        real = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0]
+        if real.strip():
+            return real.strip()
+    return request.remote_addr or "unknown"
 
 
 def assemble_galaxy(store: Storage, ai_on: bool) -> dict[str, Any]:
@@ -118,17 +126,37 @@ def create_app(
     def _store(user_id: Optional[int] = None) -> Storage:
         return Storage(app.config["DB_PATH"], user_id=user_id)
 
+    def _json_object() -> dict[str, Any]:
+        """The request's JSON body if it's an object, else {} (lists, strings, junk)."""
+        payload = request.get_json(force=True, silent=True)
+        return payload if isinstance(payload, dict) else {}
+
     def _error(message: str, status: int):
         return jsonify({"error": message}), status
 
     def _ai_error(e: AIError):
         return _error(str(e), 429 if isinstance(e, QuotaError) else 502)
 
+    def _signed_in() -> bool:
+        """True while the session is live. A session stays signed in for as
+        long as it's in use; once nothing has touched it for IDLE_LIMIT (the
+        page's 5-minute idle wait plus its 5-minute countdown, plus slack) it
+        is ended here too, so closing the tab can't leave it signed in."""
+        if not session.get("uid"):
+            return False
+        now = time.time()
+        if now - session.get("seen", 0) > IDLE_LIMIT.total_seconds():
+            session.clear()
+            return False
+        if now - session.get("seen", 0) > 15:  # don't rewrite the cookie on every request
+            session["seen"] = now
+        return True
+
     def login_required(view: Callable) -> Callable:
         @functools.wraps(view)
         def wrapper(*args, **kwargs):
             if multi_user:
-                if not session.get("uid"):
+                if not _signed_in():
                     return _error("Please sign in.", 401)
                 # JSON-only writes: a cross-site form can't send this content
                 # type without a CORS preflight, which blocks CSRF.
@@ -149,13 +177,13 @@ def create_app(
     # -- pages -----------------------------------------------------------
     @app.get("/")
     def index():
-        if multi_user and not session.get("uid"):
+        if multi_user and not _signed_in():
             return redirect("/login")
         return render_html({}, title="My Mind Galaxy", mode="server")
 
     @app.get("/login")
     def login_page():
-        if not multi_user or session.get("uid"):
+        if not multi_user or _signed_in():
             return redirect("/")
         return LOGIN_TEMPLATE.read_text(encoding="utf-8")
 
@@ -165,7 +193,7 @@ def create_app(
             return _error("Accounts are only used on the hosted site.", 404)
         if not request.is_json:
             return _error("Expected a JSON request.", 415)
-        payload = request.get_json(silent=True) or {}
+        payload = _json_object()
         try:
             with _store() as store:
                 user = action(store, str(payload.get("username", "")), str(payload.get("pin", "")), _client_ip())
@@ -174,6 +202,7 @@ def create_app(
         session.clear()
         session.permanent = True
         session["uid"] = user.id
+        session["seen"] = time.time()
         return jsonify({"username": user.username})
 
     @app.post("/api/signup")
@@ -200,7 +229,8 @@ def create_app(
                 session.clear()
                 return _error("Please sign in.", 401)
             username = user["username"]
-        return jsonify({"username": username, "multi_user": multi_user, "ai": knowledge.enabled})
+        return jsonify({"username": username, "multi_user": multi_user, "ai": knowledge.enabled,
+                        "idle_warn_seconds": IDLE_WARN_SECONDS, "idle_countdown_seconds": IDLE_COUNTDOWN_SECONDS})
 
     # -- galaxy ----------------------------------------------------------
     @app.get("/api/stars")
@@ -213,8 +243,9 @@ def create_app(
     @app.post("/api/entries")
     @login_required
     def api_add_entry():
-        payload = request.get_json(force=True, silent=True) or {}
-        text = (payload.get("text") or "").strip()
+        payload = _json_object()
+        text = payload.get("text")
+        text = text.strip() if isinstance(text, str) else ""
         if not text:
             return _error("text is required", 400)
         if len(text) > MAX_ENTRY_CHARS:
@@ -258,31 +289,46 @@ def create_app(
             entry = store.get_entry(entry_id)
             if not entry:
                 return _error("No such thought.", 404)
-            if entry["analysis"]:
-                return jsonify({"analysis": entry["analysis"], "links": 0})
+            analysis = entry["analysis"]
+            if analysis and analysis.get("linked"):
+                return jsonify({"analysis": analysis, "links": 0})
+            # Resumable: if an earlier attempt classified the thought but ran
+            # out of quota (or hit an outage) before linking, pick up there.
             try:
-                _spend_ai(store)
-                analysis = knowledge.analyze(entry["text"])
-                store.set_analysis(entry_id, analysis)
+                if not analysis:
+                    _spend_ai(store)
+                    analysis = knowledge.analyze(entry["text"])
+                    store.set_analysis(entry_id, analysis)
                 new = {**_brief(entry_id, analysis), "text": entry["text"]}
                 analyses = store.analyses()
                 others = [{**_brief(e.id, analyses[e.id]), "text": e.text}
                           for e in store.all_entries() if e.id != entry_id and e.id in analyses][-150:]
                 by_id = {o["id"]: o for o in others}
-                links = 0
+                links, unfinished = 0, False
                 if others:
                     _spend_ai(store)
                     for link in knowledge.relate(new, others):
-                        other = by_id[link["other_id"]]
+                        other = by_id.get(link["other_id"])
+                        if other is None:  # never trust the model to stick to the ids offered
+                            continue
                         if not link_allowed(link["kind"], new["category"], other["category"]):
                             continue
                         extra = None
                         if link["kind"] == "treated_at":
-                            extra = _verify_hospital(store, new, other)
+                            try:
+                                extra = _verify_hospital(store, new, other)
+                            except QuotaError:
+                                raise
+                            except AIError:
+                                unfinished = True  # couldn't check right now; retry later
+                                continue
                             if not extra:
                                 continue
-                        store.add_link(entry_id, other["id"], link["kind"], link["reason"], extra)
-                        links += 1
+                        if store.add_link(entry_id, other["id"], link["kind"], link["reason"], extra):
+                            links += 1
+                if not unfinished:
+                    analysis["linked"] = True
+                    store.set_analysis(entry_id, analysis)
             except AIError as e:
                 return _ai_error(e)
         return jsonify({"analysis": analysis, "links": links})
@@ -293,10 +339,13 @@ def create_app(
         """One level of the drill-down gas cloud around a star."""
         if not knowledge.enabled:
             return _error("AI knowledge isn't configured on this server.", 404)
-        payload = request.get_json(force=True, silent=True) or {}
-        path = [str(p)[:120] for p in (payload.get("path") or [])][:MAX_PATH_DEPTH]
+        payload = _json_object()
+        raw_path = payload.get("path")
+        path = [str(p)[:120] for p in raw_path][:MAX_PATH_DEPTH] if isinstance(raw_path, list) else []
         try:
             entry_id = int(payload.get("entry_id"))
+            if not 0 < entry_id < 2**62:
+                raise ValueError
         except (TypeError, ValueError):
             return _error("entry_id is required", 400)
         with _store(g.uid) as store:
@@ -313,7 +362,7 @@ def create_app(
                 # Keyed by subject and path only -- never the user or the
                 # note -- so one person's "noodles" answer serves everyone.
                 key = "explore:v1:" + hashlib.sha256(
-                    json.dumps([knowledge.model, category, subject, path]).encode()).hexdigest()
+                    json.dumps([knowledge.name, category, subject, path]).encode()).hexdigest()
                 node = store.cache_get(key)
                 if node is None:
                     _spend_ai(store)
@@ -322,6 +371,13 @@ def create_app(
             except AIError as e:
                 return _ai_error(e)
         return jsonify({"subject": subject, "category": category, "path": path, "node": node})
+
+    @app.post("/api/ping")
+    @login_required
+    def api_ping():
+        """Heartbeat from an active page: keeps the session alive while in use."""
+        return jsonify({"ok": True, "idle_warn_seconds": IDLE_WARN_SECONDS,
+                        "countdown_seconds": IDLE_COUNTDOWN_SECONDS})
 
     @app.get("/api/health")
     def health():

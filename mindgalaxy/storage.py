@@ -193,13 +193,20 @@ class Storage:
         self.conn.commit()
 
     # -- links -----------------------------------------------------------
-    def add_link(self, a: int, b: int, kind: str, reason: str, extra: Optional[dict] = None) -> None:
+    def add_link(self, a: int, b: int, kind: str, reason: str, extra: Optional[dict] = None) -> bool:
+        """Store a link unless the same one exists already; True if added."""
         a, b = min(a, b), max(a, b)
+        where, args = self._owner()
+        if self.conn.execute(
+            f"SELECT 1 FROM links WHERE a = ? AND b = ? AND kind = ? AND {where}", (a, b, kind, *args)
+        ).fetchone():
+            return False
         self.conn.execute(
             "INSERT INTO links (user_id, a, b, kind, reason, extra) VALUES (?, ?, ?, ?, ?, ?)",
             (self.user_id, a, b, kind, reason, json.dumps(extra) if extra else None),
         )
         self.conn.commit()
+        return True
 
     def links(self) -> list[dict[str, Any]]:
         where, args = self._owner()
@@ -210,11 +217,19 @@ class Storage:
                  "extra": json.loads(r[4]) if r[4] else None} for r in rows]
 
     # -- users -----------------------------------------------------------
-    def create_user(self, username: str, pin_hash: str) -> int:
-        cur = self.conn.execute(
-            "INSERT INTO users (username, pin_hash, created_at) VALUES (?, ?, ?)",
-            (username, pin_hash, _now().isoformat()),
-        )
+    def create_user(self, username: str, pin_hash: str) -> Optional[int]:
+        """Create a user; None if the username is taken (even by a sign-up
+        that raced this one -- the UNIQUE constraint is the real check)."""
+        try:
+            cur = self.conn.execute(
+                "INSERT INTO users (username, pin_hash, created_at) VALUES (?, ?, ?)",
+                (username, pin_hash, _now().isoformat()),
+            )
+        except Exception as e:  # sqlite3.IntegrityError locally; libsql raises its own type
+            if "UNIQUE" in str(e).upper():
+                self.conn.rollback()
+                return None
+            raise
         self.conn.commit()
         return int(cur.lastrowid)
 

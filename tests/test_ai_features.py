@@ -99,7 +99,7 @@ def test_explore_cache_is_shared_but_entries_are_private(tmp_path):
     app = create_app(db_path=str(tmp_path / "ai.db"), multi_user=True, secret_key="s", ai=ai)
     a, b = app.test_client(), app.test_client()
     a.post("/api/signup", json={"username": "alice", "pin": "1234"})
-    b.post("/api/signup", json={"username": "bob", "pin": "1234"}, headers={"X-Real-IP": "9.9.9.9"})
+    b.post("/api/signup", json={"username": "bob", "pin": "1234"}, environ_base={"REMOTE_ADDR": "9.9.9.9"})
     a_id = _add(a, "I like to eat noodles")
     b_id = _add(b, "I like to eat noodles")
     a.post("/api/explore", json={"entry_id": a_id, "path": []})

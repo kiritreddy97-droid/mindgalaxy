@@ -15,11 +15,11 @@ def app(tmp_path):
 
 
 def _signup(client, username="alice", pin="1234", ip="1.1.1.1"):
-    return client.post("/api/signup", json={"username": username, "pin": pin}, headers={"X-Real-IP": ip})
+    return client.post("/api/signup", json={"username": username, "pin": pin}, environ_base={"REMOTE_ADDR": ip})
 
 
 def _login(client, username="alice", pin="1234", ip="1.1.1.1"):
-    return client.post("/api/login", json={"username": username, "pin": pin}, headers={"X-Real-IP": ip})
+    return client.post("/api/login", json={"username": username, "pin": pin}, environ_base={"REMOTE_ADDR": ip})
 
 
 def test_multi_user_requires_secret_key(tmp_path):

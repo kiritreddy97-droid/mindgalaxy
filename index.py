@@ -26,15 +26,21 @@ from mindgalaxy.app import create_app
 db_path = os.environ.get("MINDGALAXY_DB_PATH", "/tmp/mindgalaxy.db")
 secret_key = os.environ.get("SECRET_KEY")
 
-if secret_key:
-    app = create_app(db_path=db_path, multi_user=True, secret_key=secret_key)
-else:
+
+def _not_configured() -> Flask:
     # Fail loudly and clearly rather than serving a site where anyone could
     # forge a login session.
-    app = Flask(__name__)
+    fallback = Flask(__name__)
 
-    @app.route("/", defaults={"path": ""})
-    @app.route("/<path:path>")
+    @fallback.route("/", defaults={"path": ""})
+    @fallback.route("/<path:path>")
     def not_configured(path):
         return ("MindGalaxy isn't configured yet: set the SECRET_KEY environment "
                 "variable in the Vercel project settings, then redeploy.", 500)
+
+    return fallback
+
+
+# Must stay a plain top-level assignment: Vercel finds the app by looking
+# for `app = ...` at the top level of this file.
+app = create_app(db_path=db_path, multi_user=True, secret_key=secret_key) if secret_key else _not_configured()

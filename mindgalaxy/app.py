@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from flask import Flask, g, jsonify, redirect, request, session
+from flask import Flask, g, jsonify, redirect, request, send_from_directory, session
 
 from . import auth
 from .ai import MEDICAL, AIError, KnowledgeAI, QuotaError
@@ -192,7 +192,21 @@ def create_app(
     def index():
         if multi_user and not _signed_in():
             return redirect("/login")
-        return render_html({}, title="My Mind Galaxy", mode="server")
+        return render_html({}, title="Galactic Connections", mode="server")
+
+    static_dir = Path(__file__).resolve().parent / "static"
+    site_files = {"icon.svg", "favicon.ico", "favicon-32.png", "apple-touch-icon.png", "icon-192.png",
+                  "icon-512.png", "manifest.webmanifest"}
+
+    @app.get("/<path:name>")
+    def site_file(name: str):
+        """The site icon and web-app manifest (anything else is a 404)."""
+        if name not in site_files:
+            return _error("Not found.", 404)
+        resp = send_from_directory(static_dir, name, max_age=7 * 24 * 3600)
+        if name.endswith(".webmanifest"):
+            resp.mimetype = "application/manifest+json"
+        return resp
 
     @app.get("/universe.js")
     def universe_js():

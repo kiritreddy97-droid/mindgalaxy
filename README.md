@@ -1,4 +1,6 @@
-# MindGalaxy
+# Galactic Connections
+
+*Mindful collections by galaxies.* (The Python package and CLI are still called `mindgalaxy`.)
 
 **Turn your journal, notes, or ideas into a living, navigable 3D galaxy of your own thinking.**
 

@@ -1,0 +1,14 @@
+{
+  "name": "Galactic Connections",
+  "short_name": "Galactic",
+  "description": "Mindful collections by galaxies — your thoughts become stars.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05060f",
+  "theme_color": "#0b0e21",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

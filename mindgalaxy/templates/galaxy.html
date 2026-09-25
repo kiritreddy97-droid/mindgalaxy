@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>__GALAXY_TITLE__</title>
+__ICON_TAGS__
 __THREE_JS_TAG__
 <style>
   :root {
@@ -45,6 +46,7 @@ __THREE_JS_TAG__
     background: linear-gradient(90deg, #fff, var(--accent) 70%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
+  #header .tagline { font-size: 12px; letter-spacing: 0.06em; color: #c7b6ff; margin-top: 3px; }
   #header .subtitle { color: var(--muted); font-size: 12.5px; margin-top: 4px; max-width: 560px; line-height: 1.5; }
   #stats-line { color: var(--muted); font-size: 12px; margin-top: 6px; }
   #stats-line b { color: var(--text); font-weight: 600; }
@@ -322,6 +324,7 @@ __THREE_JS_TAG__
     <div id="user-chip"><span>Signed in as <b id="user-name"></b></span><button id="logout-btn" type="button">Sign out</button></div>
   </div>
   <div id="day-chip" role="status"></div>
+  <div class="tagline">Mindful collections by galaxies</div>
   <div class="subtitle">A living map of your own thinking — every star is a thought, positioned by what it means, not when you wrote it. Nearby stars think alike. Lines are conceptual kinship; teal dashed lines link thoughts whose topics are related. Each star glows with a gas cloud of knowledge about what it's about — click one to explore. Gold stars are ideas nothing else in your galaxy resembles yet.</div>
   <div id="stats-line"></div>
 </div>
@@ -360,9 +363,10 @@ __THREE_JS_TAG__
 </div>
 
 <div class="hud panel" id="controls-hint">
-  <span><kbd>drag</kbd> rotate</span>
-  <span><kbd>scroll</kbd> zoom</span>
-  <span><kbd>click</kbd> a star to read it</span>
+  <span><kbd>drag</kbd> move</span>
+  <span><kbd>right-drag</kbd> rotate</span>
+  <span><kbd>scroll</kbd> / <kbd>pinch</kbd> zoom</span>
+  <span><kbd>click</kbd> select</span>
 </div>
 
 <div class="hud panel" id="replay-btn">
@@ -1040,33 +1044,115 @@ __UNIVERSE_TAG__
     }
     updateCamera();
 
-    let dragging = false, lastX = 0, lastY = 0, autoRotate = true, moved = 0;
+    // ---- camera controls: like a map ----
+    // drag = move · right-drag (or Ctrl/Shift-drag) = rotate & tilt
+    // wheel / trackpad pinch / touch pinch = zoom towards the pointer
+    // one-finger slide = move · two-finger twist = rotate · two-finger slide up/down = tilt
+    // double-click = zoom in · arrow keys = move · + / - = zoom
+    let dragging = false, autoRotate = true, moved = 0;
     const dom = renderer.domElement;
     dom.style.cursor = "grab";
+    dom.style.touchAction = "none"; // the page mustn't scroll or zoom under our gestures
+    const MIN_R = 12, MAX_R = 1100;
+    const pointers = new Map();    // pointerId -> {x, y}
+    let mode = null, gesture = null, lastX = 0, lastY = 0;
+    const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-    function onDown(x, y) { dragging = true; moved = 0; lastX = x; lastY = y; autoRotate = false; dom.style.cursor = "grabbing"; }
-    function onMove(x, y) {
-      if (!dragging) return;
-      const dx = x - lastX, dy = y - lastY;
-      moved += Math.abs(dx) + Math.abs(dy);
-      theta -= dx * 0.0045;
-      phi = Math.min(Math.PI - 0.08, Math.max(0.08, phi - dy * 0.0045));
-      lastX = x; lastY = y;
+    function takeControl() { focusRadius = null; autoRotate = false; }
+    function pan(dx, dy) {
+      // move the view so whatever is under the pointer follows it
+      const perPx = 2 * radius * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / dom.clientHeight;
+      camera.updateMatrixWorld();
+      camera.matrixWorld.extractBasis(_x, _y, _z);
+      target.addScaledVector(_x, -dx * perPx).addScaledVector(_y, dy * perPx);
       updateCamera();
     }
-    function onUp() { dragging = false; dom.style.cursor = "grab"; }
+    function orbit(dx, dy) {
+      theta -= dx * 0.005;
+      phi = clamp(phi - dy * 0.005, 0.08, Math.PI - 0.08);
+      updateCamera();
+    }
+    function zoomAt(factor, clientX, clientY) {
+      const next = clamp(radius * factor, MIN_R, MAX_R);
+      if (clientX != null) {
+        // keep the point under the pointer where it is while zooming
+        const rect = dom.getBoundingClientRect();
+        raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1,
+          -((clientY - rect.top) / rect.height) * 2 + 1), camera);
+        camera.getWorldDirection(_z);
+        const hit = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(_z, target), hit)) {
+          target.add(hit.sub(target).multiplyScalar(1 - next / radius));
+        }
+      }
+      radius = next;
+      updateCamera();
+    }
+    function twoFingers() {
+      const [a, b] = [...pointers.values()];
+      return { dist: Math.hypot(b.x - a.x, b.y - a.y) || 1, angle: Math.atan2(b.y - a.y, b.x - a.x),
+               cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+    }
 
-    dom.addEventListener("mousedown", e => onDown(e.clientX, e.clientY));
-    on(window, "mousemove", e => onMove(e.clientX, e.clientY));
-    on(window, "mouseup", onUp);
-    dom.addEventListener("touchstart", e => { const t = e.touches[0]; onDown(t.clientX, t.clientY); }, { passive: true });
-    dom.addEventListener("touchmove", e => { const t = e.touches[0]; onMove(t.clientX, t.clientY); }, { passive: true });
-    dom.addEventListener("touchend", onUp);
+    dom.addEventListener("pointerdown", e => {
+      try { dom.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      takeControl();
+      if (pointers.size === 1) {
+        moved = 0; lastX = e.clientX; lastY = e.clientY; dragging = true;
+        mode = (e.button === 2 || e.ctrlKey || e.shiftKey) ? "orbit" : "pan";
+        dom.style.cursor = "grabbing";
+      } else if (pointers.size === 2) {
+        mode = "gesture"; gesture = twoFingers(); moved += 100; // a gesture is never a tap
+      }
+    });
+    dom.addEventListener("pointermove", e => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (mode === "gesture" && pointers.size >= 2) {
+        const g = twoFingers();
+        let turn = g.angle - gesture.angle;
+        if (turn > Math.PI) turn -= 2 * Math.PI;
+        if (turn < -Math.PI) turn += 2 * Math.PI;
+        theta -= turn;                                                   // twist rotates
+        phi = clamp(phi - (g.cy - gesture.cy) * 0.004, 0.08, Math.PI - 0.08); // slide up/down tilts
+        zoomAt(gesture.dist / g.dist, g.cx, g.cy);                       // spread zooms in
+        gesture = g;
+        return;
+      }
+      if (mode !== "pan" && mode !== "orbit") return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      moved += Math.abs(dx) + Math.abs(dy);
+      if (mode === "pan") pan(dx, dy); else orbit(dx, dy);
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    function release(e) {
+      pointers.delete(e.pointerId);
+      if (pointers.size === 1) {        // lifted one of two fingers: carry on moving with the other
+        const [p] = pointers.values();
+        mode = "pan"; gesture = null; lastX = p.x; lastY = p.y;
+      } else if (!pointers.size) {
+        dragging = false; mode = null; gesture = null; dom.style.cursor = "grab";
+      }
+    }
+    dom.addEventListener("pointerup", release);
+    dom.addEventListener("pointercancel", release);
+    dom.addEventListener("contextmenu", e => e.preventDefault()); // right-drag rotates
     dom.addEventListener("wheel", e => {
       e.preventDefault();
-      focusRadius = null;
-      radius = Math.min(1100, Math.max(12, radius + e.deltaY * 0.12));
+      takeControl();
+      // trackpad pinches arrive as ctrl+wheel with small deltas
+      zoomAt(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
     }, { passive: false });
+    dom.addEventListener("dblclick", e => { takeControl(); zoomAt(0.5, e.clientX, e.clientY); });
+    on(window, "keydown", e => {
+      if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) return;
+      const step = 60;
+      const keys = { ArrowLeft: () => pan(step, 0), ArrowRight: () => pan(-step, 0), ArrowUp: () => pan(0, step),
+                     ArrowDown: () => pan(0, -step), "+": () => zoomAt(0.8), "=": () => zoomAt(0.8), "-": () => zoomAt(1.25) };
+      if (keys[e.key]) { e.preventDefault(); takeControl(); keys[e.key](); }
+    });
 
     on(window, "resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;

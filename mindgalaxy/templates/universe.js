@@ -711,7 +711,7 @@
       try {
         setChatStatus("Encrypting…");
         const { jwk } = await api("GET", `/api/keys/${encodeURIComponent(name)}`);
-        if (!jwk) return setChatStatus(`${name} needs to open Mind Galaxy once before they can receive media.`);
+        if (!jwk) return setChatStatus(`${name} needs to open Galactic Connections once before they can receive media.`);
         const key = await sharedKey(JSON.parse(jwk), "encrypt");
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, await file.arrayBuffer());

@@ -87,7 +87,9 @@ def ice_servers() -> list[dict[str, Any]]:
         req = urllib.request.Request(
             f"https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/{path}",
             data=json.dumps({"ttl": 4 * 3600}).encode(),
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+            # Cloudflare's bot filter rejects the default Python-urllib agent (error 1010)
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                     "User-Agent": "GalacticConnections/1.0 (+https://github.com/kiritreddy97-droid/mindgalaxy)"})
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 got = json.loads(resp.read().decode()).get("iceServers")

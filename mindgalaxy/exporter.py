@@ -45,6 +45,8 @@ def render_html(galaxy: dict[str, Any], title: str = "My Mind Galaxy", mode: str
         .replace("__GALAXY_DATA__", payload)
         .replace("__GALAXY_TITLE__", title)
         .replace("__MODE__", mode)
+        # the galaxy ecosystem only exists on the (multi-user) server
+        .replace("__UNIVERSE_TAG__", '<script src="/universe.js" defer></script>' if mode == "server" else "")
     )
     return html
 

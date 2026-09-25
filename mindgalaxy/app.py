@@ -191,6 +191,13 @@ def create_app(
             return redirect("/login")
         return render_html({}, title="My Mind Galaxy", mode="server")
 
+    @app.get("/universe.js")
+    def universe_js():
+        if not multi_user:
+            return app.response_class("", mimetype="text/javascript")
+        js = (Path(__file__).resolve().parent / "templates" / "universe.js").read_text(encoding="utf-8")
+        return app.response_class(js, mimetype="text/javascript")
+
     @app.get("/login")
     def login_page():
         if not multi_user or _signed_in():

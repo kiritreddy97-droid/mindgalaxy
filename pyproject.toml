@@ -38,7 +38,7 @@ mindgalaxy = "mindgalaxy.cli:main"
 packages = ["mindgalaxy"]
 
 [tool.setuptools.package-data]
-mindgalaxy = ["vendor/*.js", "templates/*.html"]
+mindgalaxy = ["vendor/*.js", "templates/*.html", "templates/*.js"]
 
 [tool.vercel]
 # The Flask app Vercel serves (see index.py).

@@ -408,7 +408,8 @@ class Social:
             count = int(self._one("SELECT COUNT(*) FROM entries WHERE user_id = ?", (uid,))[0])
             galaxies.append({"username": self.username(uid), "status": rel.get(uid), "families": family_of.get(uid, []),
                              "stars": count, "can_chat": self.can_chat(me, uid)})
-        reqs_in = [{"id": r[0], "from": self.username(r[1]), "kind": r[2], "family_id": r[3], "at": r[4]}
+        reqs_in = [{"id": r[0], "from": self.username(r[1]), "kind": r[2], "family_id": r[3], "at": r[4],
+                    "family_name": self._family_name(r[3])}
                    for r in self._all("SELECT id, from_user, kind, family_id, created_at FROM requests "
                                       "WHERE to_user = ? AND status = 'pending' ORDER BY id DESC", (me,))
                    if r[1] not in blocked]
@@ -419,6 +420,10 @@ class Social:
                 "families": fams, "swallows": self.unseen_swallows(me),
                 "blocked": [self.username(u) for u in blocked if self._one(
                     "SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?", (me, u))]}
+
+    def _family_name(self, family_id: Optional[int]) -> Optional[str]:
+        row = self._one("SELECT name FROM families WHERE id = ?", (family_id,)) if family_id else None
+        return row[0] if row else None
 
     def search(self, me: int, q: str, limit: int = 10) -> list[str]:
         q = (q or "").strip().lower()

@@ -182,6 +182,18 @@ Free providers are tried in order, and when one is rate-limited or out of quota 
 
 Models can be overridden with `GEMINI_MODEL`, `GROQ_MODEL`, etc. None need a credit card; see [awesome-free-llm-apis](https://github.com/mnfst/awesome-free-llm-apis) for more. Claude is an optional, paid last resort: install with `pip install mindgalaxy[claude]` (or add `anthropic` to `requirements.txt`) and set `ANTHROPIC_API_KEY`. Each account gets 80 new AI lookups a day (`MINDGALAXY_AI_DAILY_LIMIT`). With no provider configured, everything still works using the offline curated knowledge.
 
+## The galaxy ecosystem
+
+Every signed-in user's galaxy floats in a shared universe around yours, labelled with their username; zoom out to see them. Only a galaxy's owner can open it. Click a galaxy (or search in **✉ Galaxies**) to:
+
+- **Befriend** it. When they accept, a string joins your soul to theirs and you can chat (text, emoji, anything).
+- **Become life partners** (both accept): you can each read all of the other's thoughts.
+- **Form a family** of up to 9 galaxies: members see only thoughts their owner switches to *Share with family*, and the AI keeps 18+ and violent thoughts from ever being shared there.
+- **Become enemies** (both accept): a black hole appears on the string between you. Each side can report the other once a day; after 5 reports the black hole swallows that galaxy (everyone involved sees it happen). The pair is cut apart forever: their chat and media are destroyed and neither can ever send the other a request again.
+- **Leave** partnership, family or enmity only when both agree. **Block** always works one-sided and instantly: it ends any status and hides chat, requests and shared thoughts between the two, and deletes nothing.
+
+**Media in chat is view-once and end-to-end encrypted.** Photos show for 10 seconds; audio and video play once. Each browser keeps a private key (ECDH P-256, never exported) and media is encrypted with AES-GCM before it leaves the sender's device. The server stores only ciphertext and deletes it the moment it's opened, or after 7 days unopened. Limits: 4 MB per file; media can only be opened on the device the recipient last used the site on; and nothing can stop someone photographing their screen.
+
 ## Deploying to Vercel
 
 `index.py` is the Vercel entrypoint. In your Vercel project → **Settings → Environment Variables**, add:
@@ -190,7 +202,7 @@ Models can be overridden with `GEMINI_MODEL`, `GROQ_MODEL`, etc. None need a cre
 |---|---|---|
 | `SECRET_KEY` | yes | Signs login sessions. Any long random string, e.g. `python -c "import secrets; print(secrets.token_hex(32))"`. Without it the site shows a "not configured" page rather than running insecurely. |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | yes, in practice | A free [Turso](https://turso.tech) database, so accounts and thoughts survive. Without them storage falls back to `/tmp`, which is wiped on every cold start. |
-| `GEMINI_API_KEY` (and/or the other free providers) | recommended | Turns on the AI features above, at no cost. |
+| `GROQ_API_KEY`, `GEMINI_API_KEY` (and/or the other free providers) | recommended | Turn on the AI features above, at no cost. Groq is tried first (fastest), then Gemini. |
 
 Then redeploy. New tables and columns are created in Turso automatically on first use; thoughts saved before accounts existed aren't shown to any account.
 

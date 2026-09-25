@@ -398,3 +398,12 @@ def test_swallow_destroys_pending_media(app):
     assert b.post(f"/api/media/{mid}/open", json={}).status_code == 410
     with Storage(app.config["DB_PATH"]) as s:
         assert s.conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 0
+
+
+def test_universe_script_only_on_hosted_site(app, tmp_path):
+    c = user(app, "alice")
+    assert b'src="/universe.js"' in c.get("/").data
+    js = c.get("/universe.js")
+    assert js.status_code == 200 and js.mimetype == "text/javascript" and b"MindGalaxy" in js.data
+    from mindgalaxy.exporter import render_html
+    assert "src=\"/universe.js\"" not in render_html({}, mode="standalone")

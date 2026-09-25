@@ -390,6 +390,7 @@ __THREE_JS_TAG__
 </div>
 
 <script id="galaxy-data" type="application/json">__GALAXY_DATA__</script>
+__UNIVERSE_TAG__
 <script>
 (function () {
   "use strict";
@@ -402,12 +403,18 @@ __THREE_JS_TAG__
   function boot(data) {
     stopForming();
     if (!data || !data.stars || data.stars.length === 0) {
-      document.getElementById("empty-state").style.display = "flex";
+      const empty = document.getElementById("empty-state");
+      empty.style.display = "flex";
       if (MODE === "server") {
         document.getElementById("empty-hint").textContent =
           "Type your first thought below — try “I love to cook”, “I need a watch” or “solve 2x + 3 = 11”.";
       }
-      return;
+      // signed in: still show your soul and the other galaxies around it
+      if (!OWNER || !data) return;
+      empty.style.pointerEvents = "none";
+      empty.style.justifyContent = "flex-end";
+      empty.style.paddingBottom = "140px";
+      data.stars = [];
     }
     initGalaxy(data);
   }
@@ -1033,7 +1040,7 @@ __THREE_JS_TAG__
     dom.addEventListener("wheel", e => {
       e.preventDefault();
       focusRadius = null;
-      radius = Math.min(420, Math.max(12, radius + e.deltaY * 0.12));
+      radius = Math.min(1100, Math.max(12, radius + e.deltaY * 0.12));
     }, { passive: false });
 
     window.addEventListener("resize", () => {
@@ -1080,8 +1087,13 @@ __THREE_JS_TAG__
       dom.style.cursor = (hit || lab || onSoul) ? "pointer" : "grab";
     });
 
+    const extraPickers = [];
     dom.addEventListener("click", e => {
       if (moved > 6) return; // that was a drag, not a click
+      if (extraPickers.length) {
+        setMouse(e.clientX, e.clientY);
+        if (extraPickers.some(fn => fn(raycaster))) return;
+      }
       const lab = pickLabel(e.clientX, e.clientY);
       if (lab) {
         const en = clouds[selected] && clouds[selected].entries[lab.userData.facetIdx];
@@ -1573,6 +1585,7 @@ __THREE_JS_TAG__
       }
       renderKnowledge(i);
       renderLinks(i);
+      document.dispatchEvent(new CustomEvent("mindgalaxy:star", { detail: { star, own: true } }));
       detailPanel.scrollTop = 0;
       detailPanel.classList.add("open");
       document.body.classList.add("panel-open");
@@ -1767,12 +1780,13 @@ __THREE_JS_TAG__
     }
 
     function toggleHistory(open) {
+      if (open && !stars.length) return; // nothing to put on a calendar yet
       histPanel.classList.toggle("open", open);
       document.body.classList.toggle("history-open", open);
       histBtn.setAttribute("aria-expanded", String(open));
       if (open) renderCalendar();
     }
-    histBtn.style.display = "inline-flex";
+    histBtn.style.display = stars.length ? "inline-flex" : "none";
     histBtn.addEventListener("click", () => toggleHistory(!histPanel.classList.contains("open")));
     document.getElementById("cal-prev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });
     document.getElementById("cal-next").addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); });
@@ -1811,6 +1825,7 @@ __THREE_JS_TAG__
     });
 
     // ---- render loop ----
+    const frameHooks = [];
     function animate() {
       requestAnimationFrame(animate);
       let camDirty = false;
@@ -1860,6 +1875,7 @@ __THREE_JS_TAG__
         const cur = g.scale.x, tgt = g.userData.targetScale;
         if (Math.abs(cur - tgt) > 0.002) g.scale.setScalar(cur + (tgt - cur) * 0.08);
       }
+      frameHooks.forEach(fn => fn(performance.now() / 1000));
       renderer.render(scene, camera);
     }
     animate();
@@ -1874,6 +1890,16 @@ __THREE_JS_TAG__
     }
     if (initial < 0 && stars.length === 1) initial = 0;
     if (initial >= 0) setTimeout(() => selectStar(initial), 350);
+
+    // Hand the scene to the universe layer (universe.js, hosted site only).
+    window.MindGalaxy = {
+      THREE, scene, camera, glowTex, owner: OWNER, makeLabel, flyTo, el, truncate, disposeObject,
+      onFrame: fn => frameHooks.push(fn),
+      onClick: fn => extraPickers.push(fn),
+      deselect: () => { if (selected >= 0) deselect(); },
+      openHistory: () => toggleHistory(true),
+    };
+    document.dispatchEvent(new Event("mindgalaxy:ready"));
   }
 })();
 </script>

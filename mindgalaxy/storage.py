@@ -87,7 +87,7 @@ def _connect(db_path: Path | str):
     if turso_url:
         import libsql
 
-        return libsql.connect(turso_url, auth_token=os.environ.get("TURSO_AUTH_TOKEN")), turso_url
+        return libsql.connect(turso_url, auth_token=os.environ.get("TURSO_AUTH_TOKEN", "")), turso_url
 
     import sqlite3
 

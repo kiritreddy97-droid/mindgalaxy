@@ -598,3 +598,36 @@ def test_provider_error_detail_is_logged_without_key(fake_llm_server, caplog):
         FreeProvider("a", f"{fake_llm_server}/a", "SECRET-KEY-123", "m").complete_json("s", "u", SCHEMA)
     assert "API key not valid" in str(e.value)
     assert "API key not valid" in caplog.text and "SECRET-KEY-123" not in caplog.text
+
+
+def test_overloaded_model_falls_back_to_sibling(fake_llm_server):
+    def chat(body):
+        if body["model"] == "gemini-9.9-flash":
+            return 503, '[{"error": {"code": 503, "message": "This model is currently experiencing high demand."}}]'
+        return 200, _chat('{"kind":"detail","n":%d,"items":[]}' % len(body["model"]))
+
+    _Handler.script = {"g": chat}
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"data": [{"id": "models/gemini-9.9-flash"}, {"id": "models/gemini-9.9-flash-lite"},
+                                              {"id": "models/gemini-9.9-flash-image"}]}).encode())
+
+    _Handler.do_GET = do_GET
+    try:
+        p = FreeProvider("g", f"{fake_llm_server}/g", "k", "gemini-9.9-flash")
+        out = p.complete_json("s", "u", SCHEMA)
+        assert out["n"] == len("gemini-9.9-flash-lite")  # answered by the Flash-Lite sibling
+        assert p.model == "gemini-9.9-flash"  # overload is temporary: keep the configured model
+    finally:
+        del _Handler.do_GET
+
+
+def test_rank_models():
+    from mindgalaxy.free_ai import rank_models
+    ids = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash-preview",
+           "gemini-3.6-flash-image", "gemini-2.5-pro", "gemma-4-31b"]
+    assert rank_models(ids, "gemini-2.5-flash")[:4] == [
+        "gemini-3.6-flash", "gemini-2.5-flash", "gemini-3.7-flash-preview", "gemini-2.5-flash-lite"]

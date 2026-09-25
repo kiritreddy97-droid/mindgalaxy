@@ -80,19 +80,34 @@ class FreeProvider:
             log.warning("AI provider %s unreachable: %r", self.name, e)
             raise ProviderError(f"{self.name} unreachable") from e
 
-    def _discover_model(self) -> Optional[str]:
-        """Ask the provider which models this key can use and pick the best
-        general-purpose one, for when the configured model doesn't exist
-        (models get renamed and retired over time)."""
+    def _available_models(self) -> list[str]:
+        """The models this key can use, best first (see rank_models)."""
         headers = {"User-Agent": USER_AGENT}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         try:
             listing = self._request("/models", headers)
         except ProviderError:
-            return None
+            return []
         ids = [str(m.get("id", "")).removeprefix("models/") for m in listing.get("data", []) if isinstance(m, dict)]
-        return pick_model(ids, self.model)
+        return rank_models(ids, self.model)
+
+    def _discover_model(self) -> Optional[str]:
+        """Best replacement when the configured model doesn't exist (models
+        get renamed and retired over time)."""
+        ranked = self._available_models()
+        return ranked[0] if ranked else None
+
+    def _try_sibling_models(self, body: dict[str, Any], first: ProviderError) -> dict[str, Any]:
+        """Retry the request on up to two other models from this provider."""
+        last = first
+        for model in [m for m in self._available_models() if m != body["model"]][:2]:
+            log.warning("AI provider %s: %s unavailable (HTTP %s), trying %s", self.name, body["model"], last.status, model)
+            try:
+                return self._post({**body, "model": model})
+            except ProviderError as e:
+                last = e
+        raise last
 
     def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> dict[str, Any]:
         body = {
@@ -119,6 +134,10 @@ class FreeProvider:
             elif e.status == 400:
                 body.pop("response_format")  # some models reject JSON mode; the prompt still asks for JSON
                 data = self._post(body)
+            elif e.status in (429, 500, 503):
+                # Overloaded or out of this model's free quota. Free limits are
+                # per model, so a sibling model often still answers.
+                data = self._try_sibling_models(body, e)
             else:
                 raise
         try:
@@ -146,21 +165,30 @@ def _error_detail(e: urllib.error.HTTPError) -> str:
     return re.sub(r"\s+", " ", raw)[:300]
 
 
-def pick_model(ids: list[str], wanted: str) -> Optional[str]:
-    """Best replacement for `wanted` among available model ids: same family
-    (e.g. Gemini Flash), newest version, avoiding specialised variants."""
-    skip = ("image", "tts", "audio", "live", "embed", "vision", "preview-tts", "native", "guard", "whisper")
+def rank_models(ids: list[str], wanted: str) -> list[str]:
+    """Available model ids ranked as replacements for `wanted`: same family
+    first (e.g. Gemini Flash, then Flash-Lite), stable before preview, newest
+    first; specialised variants (image, speech, embeddings ...) left out."""
+    skip = ("image", "tts", "audio", "live", "embed", "vision", "native", "guard", "whisper", "robotics", "computer")
     usable = [m for m in ids if m and not any(s in m.lower() for s in skip)]
-    if not usable:
-        return None
-    family = "flash" if "flash" in wanted.lower() else None
-    pool = [m for m in usable if family and family in m.lower() and "lite" not in m.lower()] or usable
+    family = "flash" if "flash" in wanted.lower() else ""
 
-    def version(m: str) -> tuple:
+    def rank(m: str) -> tuple:
+        low = m.lower()
         nums = re.findall(r"\d+(?:\.\d+)?", m)
-        return (0 if ("exp" in m or "preview" in m) else 1, float(nums[0]) if nums else 0.0)
+        return (
+            1 if family and family in low else 0,
+            0 if "lite" in low else 1,
+            0 if ("exp" in low or "preview" in low) else 1,
+            float(nums[0]) if nums else 0.0,
+        )
 
-    return max(pool, key=version)
+    return sorted(dict.fromkeys(usable), key=rank, reverse=True)
+
+
+def pick_model(ids: list[str], wanted: str) -> Optional[str]:
+    ranked = rank_models(ids, wanted)
+    return ranked[0] if ranked else None
 
 
 def providers_from_env() -> list[FreeProvider]:

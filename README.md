@@ -176,6 +176,8 @@ Free providers are tried in order, and when one is rate-limited or out of quota 
 |---|---|---|
 | [Google Gemini](https://aistudio.google.com/app/apikey) | `GEMINI_API_KEY` | ~1,500 requests/day on Flash models. Free-tier prompts may be used by Google to improve its products. |
 | [Groq](https://console.groq.com/keys) | `GROQ_API_KEY` | ~1,000 requests/day |
+| [Cerebras](https://cloud.cerebras.ai/) | `CEREBRAS_API_KEY` | free tier, very fast |
+| [Mistral](https://console.mistral.ai/api-keys) | `MISTRAL_API_KEY` | large monthly allowance; free-mode prompts may be used for training unless you opt out |
 | [OpenRouter](https://openrouter.ai/keys) | `OPENROUTER_API_KEY` | ~50 requests/day on `:free` models |
 | [NVIDIA NIM](https://build.nvidia.com/) | `NVIDIA_API_KEY` | free with the developer program |
 | Any OpenAI-compatible endpoint | `FREE_AI_BASE_URL`, `FREE_AI_API_KEY`, `FREE_AI_MODEL` | |

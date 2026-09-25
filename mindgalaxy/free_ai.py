@@ -41,12 +41,14 @@ class ProviderError(Exception):
 
 
 # name, API-key env var, base URL, default model, model env var
-# Groq first: it runs on dedicated inference chips and answers in a second or
-# two; Gemini is the backup.
+# Fastest first: Groq and Cerebras run on dedicated inference chips and answer
+# in a second or two; Gemini and Mistral (large free allowances) back them up.
 KNOWN_PROVIDERS = [
     ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "GROQ_MODEL"),
+    ("Cerebras", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1", "gpt-oss-120b", "CEREBRAS_MODEL"),
     ("Gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai",
      "gemini-3.8-flash", "GEMINI_MODEL"),
+    ("Mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1", "mistral-small-latest", "MISTRAL_MODEL"),
     ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai/gpt-oss-20b:free",
      "OPENROUTER_MODEL"),
     ("NVIDIA", "NVIDIA_API_KEY", "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct",

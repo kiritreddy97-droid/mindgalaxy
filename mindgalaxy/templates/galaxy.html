@@ -400,7 +400,10 @@ __UNIVERSE_TAG__
   // ---------------------------------------------------------------
   // Data loading
   // ---------------------------------------------------------------
-  function boot(data) {
+  let galaxy = null;
+  function boot(data, focusId) {
+    if (galaxy) { galaxy.destroy(); galaxy = null; }
+    document.getElementById("empty-state").style.display = "none";
     stopForming();
     if (!data || !data.stars || data.stars.length === 0) {
       const empty = document.getElementById("empty-state");
@@ -416,7 +419,7 @@ __UNIVERSE_TAG__
       empty.style.paddingBottom = "140px";
       data.stars = [];
     }
-    initGalaxy(data);
+    galaxy = initGalaxy(data, focusId);
   }
 
   if (MODE === "standalone") {
@@ -630,10 +633,21 @@ __UNIVERSE_TAG__
             method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
           }).catch(() => null);
         }
-        // Reload so boot() re-fetches /api/stars and the new star is
-        // positioned by a fresh recomputation of the whole galaxy -- then
-        // fly straight to it so its gas cloud is the first thing you see.
-        window.location.href = window.location.pathname + "?focus=" + encodeURIComponent(body.id);
+        // Redraw the galaxy in place (no page reload, no blank screen) with
+        // the new star positioned by a fresh recomputation of the whole
+        // galaxy, then fly straight to it.
+        startForming("A new star is forming…", true);
+        try {
+          const fresh = await fetch("/api/stars").then(r => { if (!r.ok) throw new Error(); return r.json(); });
+          boot(fresh, body.id);
+          input.value = "";
+          input.style.height = "auto";
+          document.getElementById("composer-status").style.display = "none";
+          button.disabled = false;
+          input.disabled = false;
+        } catch (e) {
+          window.location.href = window.location.pathname + "?focus=" + encodeURIComponent(body.id);
+        }
       } catch (err) {
         showError(err.message || "Couldn't add that thought — try again.");
         button.disabled = false;
@@ -687,7 +701,15 @@ __UNIVERSE_TAG__
   // ---------------------------------------------------------------
   // Main galaxy
   // ---------------------------------------------------------------
-  function initGalaxy(data) {
+  function initGalaxy(data, focusId) {
+    // Listeners on things that outlive this galaxy (the window, header
+    // buttons ...) are tracked so destroy() can remove them when the galaxy
+    // is redrawn in place.
+    const cleanups = [];
+    function on(target, type, fn, opts) {
+      target.addEventListener(type, fn, opts);
+      cleanups.push(() => target.removeEventListener(type, fn, opts));
+    }
     const stars = data.stars;
     const edges = data.edges || [];
     const clusters = data.clusters || {};
@@ -849,9 +871,9 @@ __UNIVERSE_TAG__
       if (!st || !st.node) return [];
       const n = st.node, tid = "explore:" + st.subject + ">" + st.path.join(">");
       if (n.kind === "choices") {
-        return (n.choices || []).slice(0, 10).map(c => ({ topicId: tid, topicLabel: st.subject, facet: { name: c.label, items: [] }, choice: c }));
+        return (n.choices || []).map(c => ({ topicId: tid, topicLabel: st.subject, facet: { name: c.label, items: [] }, choice: c }));
       }
-      return (n.items || []).slice(0, 10).map(it => ({ topicId: tid, topicLabel: st.subject, facet: { name: it.name, items: [toItem(it)] }, item: it }));
+      return (n.items || []).map(it => ({ topicId: tid, topicLabel: st.subject, facet: { name: it.name, items: [toItem(it)] }, item: it }));
     }
 
     function facetsForStar(star) {
@@ -881,7 +903,10 @@ __UNIVERSE_TAG__
     function buildCloud(i) {
       const star = stars[i];
       if (clouds[i]) { scene.remove(clouds[i].group); disposeObject(clouds[i].group); clouds[i] = null; }
-      const entries = facetsForStar(star);
+      // every option is listed in the panel; the 3D cloud draws at most 14
+      const all = facetsForStar(star);
+      all.forEach((en, fi) => { en.color = facetHsl(en.topicId, fi); });
+      const entries = all.slice(0, 14);
       if (!entries.length) return null;
       const group = new THREE.Group();
       group.position.set(star.x, star.y, star.z);
@@ -925,7 +950,7 @@ __UNIVERSE_TAG__
       group.scale.setScalar(cloudBase);
       group.userData = { labels: [], spin: 0.0012 + Math.random() * 0.0012, targetScale: cloudBase };
       scene.add(group);
-      clouds[i] = { group, entries, centers };
+      clouds[i] = { group, entries, centers, all };
       return clouds[i];
     }
     stars.forEach((s, i) => buildCloud(i));
@@ -1032,8 +1057,8 @@ __UNIVERSE_TAG__
     function onUp() { dragging = false; dom.style.cursor = "grab"; }
 
     dom.addEventListener("mousedown", e => onDown(e.clientX, e.clientY));
-    window.addEventListener("mousemove", e => onMove(e.clientX, e.clientY));
-    window.addEventListener("mouseup", onUp);
+    on(window, "mousemove", e => onMove(e.clientX, e.clientY));
+    on(window, "mouseup", onUp);
     dom.addEventListener("touchstart", e => { const t = e.touches[0]; onDown(t.clientX, t.clientY); }, { passive: true });
     dom.addEventListener("touchmove", e => { const t = e.touches[0]; onMove(t.clientX, t.clientY); }, { passive: true });
     dom.addEventListener("touchend", onUp);
@@ -1043,7 +1068,7 @@ __UNIVERSE_TAG__
       radius = Math.min(1100, Math.max(12, radius + e.deltaY * 0.12));
     }, { passive: false });
 
-    window.addEventListener("resize", () => {
+    on(window, "resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       applyViewOffset();
@@ -1347,8 +1372,9 @@ __UNIVERSE_TAG__
       if (n.heading) sec.appendChild(el("div", "kn-title", n.heading));
       if (n.prompt) sec.appendChild(el("div", "kn-blurb", n.prompt));
       const cl = clouds[i];
-      const entries = cl ? cl.entries : [];
+      const entries = cl ? cl.all : [];
       if (n.kind === "choices") {
+        sec.appendChild(el("div", "kn-note", `${entries.length} options`));
         entries.forEach((en, fi) => {
           const b = el("button", "kn-choice");
           b.style.borderLeftColor = en.color;
@@ -1590,8 +1616,8 @@ __UNIVERSE_TAG__
       detailPanel.classList.add("open");
       document.body.classList.add("panel-open");
     }
-    document.getElementById("detail-close").addEventListener("click", deselect);
-    window.addEventListener("keydown", e => { if (e.key === "Escape" && selected >= 0) deselect(); });
+    on(document.getElementById("detail-close"), "click", deselect);
+    on(window, "keydown", e => { if (e.key === "Escape" && selected >= 0) deselect(); });
 
     // ---- Wikipedia fallback for thoughts outside the curated topics ----
     const STOP = new Set(("i me my mine we our you your he she him her it its they them their a an the and or but so to of in on " +
@@ -1685,7 +1711,7 @@ __UNIVERSE_TAG__
       if (selected >= 0) highlightEdges(selected);
     }
 
-    document.getElementById("search-input").addEventListener("input", e => applyVisibility(e.target.value));
+    on(document.getElementById("search-input"), "input", e => applyVisibility(e.target.value));
 
     // ---- history calendar: browse thoughts by the day you wrote them ----
     const byDay = {};
@@ -1787,13 +1813,13 @@ __UNIVERSE_TAG__
       if (open) renderCalendar();
     }
     histBtn.style.display = stars.length ? "inline-flex" : "none";
-    histBtn.addEventListener("click", () => toggleHistory(!histPanel.classList.contains("open")));
-    document.getElementById("cal-prev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });
-    document.getElementById("cal-next").addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); });
+    on(histBtn, "click", () => toggleHistory(!histPanel.classList.contains("open")));
+    on(document.getElementById("cal-prev"), "click", () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); });
+    on(document.getElementById("cal-next"), "click", () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); });
 
     // ---- replay formation (time-lapse) ----
-    let replaying = false;
-    document.getElementById("replay-btn").addEventListener("click", () => {
+    let replaying = false, replayTimer = 0;
+    on(document.getElementById("replay-btn"), "click", () => {
       if (replaying) return;
       replaying = true;
       document.getElementById("replay-label").textContent = "Replaying…";
@@ -1806,7 +1832,7 @@ __UNIVERSE_TAG__
       lineGroup.visible = false;
       let i = 0;
       const step = Math.max(12, Math.min(90, 3200 / ordered.length));
-      const timer = setInterval(() => {
+      const timer = replayTimer = setInterval(() => {
         if (i >= ordered.length) {
           clearInterval(timer);
           lineGroup.visible = true;
@@ -1826,8 +1852,9 @@ __UNIVERSE_TAG__
 
     // ---- render loop ----
     const frameHooks = [];
+    let rafId = 0;
     function animate() {
-      requestAnimationFrame(animate);
+      rafId = requestAnimationFrame(animate);
       let camDirty = false;
       if (focusRadius !== null) {
         target.lerp(focusTarget, 0.07);
@@ -1882,11 +1909,11 @@ __UNIVERSE_TAG__
 
     // ---- open straight onto a just-added thought (or a lone first star) ----
     const params = new URLSearchParams(window.location.search);
-    const focusId = params.get("focus");
+    const wanted = focusId != null ? String(focusId) : params.get("focus");
     let initial = -1;
-    if (focusId) {
-      initial = stars.findIndex(s => String(s.id) === focusId);
-      try { history.replaceState(null, "", window.location.pathname); } catch (e) { /* ignore */ }
+    if (wanted) {
+      initial = stars.findIndex(s => String(s.id) === wanted);
+      if (params.get("focus")) try { history.replaceState(null, "", window.location.pathname); } catch (e) { /* ignore */ }
     }
     if (initial < 0 && stars.length === 1) initial = 0;
     if (initial >= 0) setTimeout(() => selectStar(initial), 350);
@@ -1900,6 +1927,26 @@ __UNIVERSE_TAG__
       openHistory: () => toggleHistory(true),
     };
     document.dispatchEvent(new Event("mindgalaxy:ready"));
+
+    return {
+      destroy() {
+        cancelAnimationFrame(rafId);
+        clearInterval(replayTimer);
+        cleanups.forEach(fn => fn());
+        scene.traverse(o => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+        });
+        renderer.dispose();
+        renderer.domElement.remove();
+        document.getElementById("legend-list").innerHTML = "";
+        detailPanel.classList.remove("open");
+        document.body.classList.remove("panel-open", "history-open");
+        histPanel.classList.remove("open");
+        histBtn.setAttribute("aria-expanded", "false");
+        document.getElementById("day-chip").style.display = "none";
+      },
+    };
   }
 })();
 </script>

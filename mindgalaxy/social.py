@@ -286,12 +286,12 @@ class Social:
 
     def unseen_swallows(self, me: int) -> list[dict[str, Any]]:
         out = []
-        for a, b, victim, at, a_seen, b_seen in self._all(
-                "SELECT a, b, swallowed, created_at, a_seen, b_seen FROM severed WHERE a = ? OR b = ?", (me, me)):
-            if (me == a and not a_seen) or (me == b and not b_seen):
-                other = b if me == a else a
-                out.append({"with": self.username(other), "swallowed": self.username(victim),
-                            "you_were_swallowed": victim == me, "at": at})
+        for a, b, victim, at, ua, ub in self._all(
+                "SELECT s.a, s.b, s.swallowed, s.created_at, ua.username, ub.username FROM severed s "
+                "JOIN users ua ON ua.id = s.a JOIN users ub ON ub.id = s.b "
+                "WHERE (s.a = ? AND s.a_seen = 0) OR (s.b = ? AND s.b_seen = 0)", (me, me)):
+            out.append({"with": ub if me == a else ua, "swallowed": ua if victim == a else ub,
+                        "you_were_swallowed": victim == me, "at": at})
         return out
 
     def mark_swallows_seen(self, me: int) -> None:
@@ -381,45 +381,55 @@ class Social:
     # -- the universe ----------------------------------------------------
     def universe(self, me: int, others_limit: int = 40) -> dict[str, Any]:
         """Everything the universe view needs: galaxies around mine, strings,
-        requests, families and any black-hole swallows not yet watched."""
-        blocked = {r[0] for r in self._all("SELECT blocked FROM blocks WHERE blocker = ?", (me,))} | \
-                  {r[0] for r in self._all("SELECT blocker FROM blocks WHERE blocked = ?", (me,))}
+        requests, families and any black-hole swallows not yet watched.
+
+        Polled every few seconds against a remote database, so it uses a fixed
+        handful of batched queries rather than a few per galaxy."""
+        blocked_by_me = {r[0] for r in self._all("SELECT blocked FROM blocks WHERE blocker = ?", (me,))}
+        blocked = blocked_by_me | {r[0] for r in self._all("SELECT blocker FROM blocks WHERE blocked = ?", (me,))}
         severed = {r[0] if r[1] == me else r[1] for r in self._all("SELECT a, b FROM severed WHERE a = ? OR b = ?", (me, me))}
-        rel = {}
-        for a, b, status in self._all("SELECT a, b, status FROM relations WHERE a = ? OR b = ?", (me, me)):
-            rel[b if a == me else a] = status
-        fams = []
+        rel = {(b if a == me else a): status
+               for a, b, status in self._all("SELECT a, b, status FROM relations WHERE a = ? OR b = ?", (me, me))}
+        fam_rows = self._all(
+            "SELECT f.id, f.name, m.user_id, u.username FROM families f "
+            "JOIN family_members m ON m.family_id = f.id JOIN users u ON u.id = m.user_id "
+            "WHERE f.id IN (SELECT family_id FROM family_members WHERE user_id = ?) ORDER BY f.id, m.joined_at", (me,))
+        fams: dict[int, dict[str, Any]] = {}
         family_of: dict[int, list[str]] = {}
-        for fid in self.families_of(me):
-            name = self._one("SELECT name FROM families WHERE id = ?", (fid,))
-            members = self.family_members(fid)
-            fams.append({"id": fid, "name": name[0] if name else "Family",
-                         "members": [self.username(m) for m in members]})
-            for m in members:
-                if m != me:
-                    family_of.setdefault(m, []).append(name[0] if name else "Family")
-        related = (set(rel) | set(family_of)) - blocked - severed
+        for fid, fname, uid, uname in fam_rows:
+            fams.setdefault(fid, {"id": fid, "name": fname, "members": []})["members"].append(uname)
+            if uid != me:
+                family_of.setdefault(uid, []).append(fname)
+        hidden = blocked | severed
+        related = (set(rel) | set(family_of)) - hidden
         recent = [r[0] for r in self._all("SELECT id FROM users WHERE id != ? ORDER BY id DESC LIMIT ?",
-                                          (me, others_limit + len(blocked) + len(severed)))]
-        ids = list(related) + [u for u in recent if u not in related and u not in blocked and u not in severed]
+                                          (me, others_limit + len(hidden)))]
+        ids = list(related) + [u for u in recent if u not in related and u not in hidden]
         ids = ids[: max(others_limit, len(related))]
-        galaxies = []
-        for uid in ids:
-            count = int(self._one("SELECT COUNT(*) FROM entries WHERE user_id = ?", (uid,))[0])
-            galaxies.append({"username": self.username(uid), "status": rel.get(uid), "families": family_of.get(uid, []),
-                             "stars": count, "can_chat": self.can_chat(me, uid)})
-        reqs_in = [{"id": r[0], "from": self.username(r[1]), "kind": r[2], "family_id": r[3], "at": r[4],
-                    "family_name": self._family_name(r[3])}
-                   for r in self._all("SELECT id, from_user, kind, family_id, created_at FROM requests "
-                                      "WHERE to_user = ? AND status = 'pending' ORDER BY id DESC", (me,))
-                   if r[1] not in blocked]
-        reqs_out = [{"id": r[0], "to": self.username(r[1]), "kind": r[2], "family_id": r[3]}
-                    for r in self._all("SELECT id, to_user, kind, family_id FROM requests "
-                                       "WHERE from_user = ? AND status = 'pending' ORDER BY id DESC", (me,))]
+        names, counts = {}, {}
+        if ids:
+            marks = ",".join("?" * len(ids))
+            names = dict(self._all(f"SELECT id, username FROM users WHERE id IN ({marks})", tuple(ids)))
+            counts = dict(self._all(f"SELECT user_id, COUNT(*) FROM entries WHERE user_id IN ({marks}) GROUP BY user_id",
+                                    tuple(ids)))
+        galaxies = [{"username": names.get(uid, "?"), "status": rel.get(uid), "families": family_of.get(uid, []),
+                     "stars": int(counts.get(uid, 0)),
+                     "can_chat": rel.get(uid) in CHAT_STATUSES or uid in family_of}
+                    for uid in ids]
+        reqs_in = [{"id": r[0], "from": r[1], "kind": r[2], "family_id": r[3], "at": r[4], "family_name": r[5]}
+                   for r in self._all(
+                       "SELECT r.id, u.username, r.kind, r.family_id, r.created_at, f.name, r.from_user FROM requests r "
+                       "JOIN users u ON u.id = r.from_user LEFT JOIN families f ON f.id = r.family_id "
+                       "WHERE r.to_user = ? AND r.status = 'pending' ORDER BY r.id DESC", (me,))
+                   if r[6] not in blocked]
+        reqs_out = [{"id": r[0], "to": r[1], "kind": r[2], "family_id": r[3]}
+                    for r in self._all(
+                        "SELECT r.id, u.username, r.kind, r.family_id FROM requests r JOIN users u ON u.id = r.to_user "
+                        "WHERE r.from_user = ? AND r.status = 'pending' ORDER BY r.id DESC", (me,))]
+        blocked_names = [r[0] for r in self._all(
+            "SELECT u.username FROM blocks b JOIN users u ON u.id = b.blocked WHERE b.blocker = ?", (me,))]
         return {"me": self.username(me), "galaxies": galaxies, "requests_in": reqs_in, "requests_out": reqs_out,
-                "families": fams, "swallows": self.unseen_swallows(me),
-                "blocked": [self.username(u) for u in blocked if self._one(
-                    "SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?", (me, u))]}
+                "families": list(fams.values()), "swallows": self.unseen_swallows(me), "blocked": blocked_names}
 
     def _family_name(self, family_id: Optional[int]) -> Optional[str]:
         row = self._one("SELECT name FROM families WHERE id = ?", (family_id,)) if family_id else None

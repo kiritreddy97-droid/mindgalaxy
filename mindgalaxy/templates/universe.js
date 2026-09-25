@@ -31,10 +31,17 @@
   };
   const EMOJI = ["😀", "😂", "😍", "👍", "🙏", "🔥", "❤️", "😢", "🎉", "😮"];
 
+  // The galaxy page can redraw itself in place (after a new thought); each
+  // redraw hands over a fresh scene, and the universe re-attaches to it.
+  let G = null, THREE = null, scene = null, rebind = null;
+  function bind() {
+    const next = window.MindGalaxy;
+    if (!next || !next.owner) return;
+    G = next; THREE = next.THREE; scene = next.scene;
+    if (rebind) rebind(); else start();
+  }
+
   function start() {
-    const G = window.MindGalaxy;
-    if (!G || !G.owner) return;
-    const { THREE, scene } = G;
 
     injectStyles();
     const ui = buildUi();
@@ -199,19 +206,31 @@
       ui.reqBtn.classList.toggle("has", data.requests_in.length > 0);
     }
 
-    G.onFrame(t => {
+    function hook() {
+      G.onFrame(onFrame);
+      G.onClick(onClick);
+    }
+    rebind = () => {
+      objects = []; pickables = []; spinning = []; // their old scene is already disposed
+      if (swallowing) { swallowing = null; }
+      hook();
+      if (data) draw();
+    };
+    hook();
+
+    function onFrame(t) {
       placeTags();
       spinning.forEach(o => { if (o.userData && o.userData.spin) o.rotation.y += o.userData.spin; else o.rotation.z += 0.01; });
       swallowFrame(t);
-    });
+    }
 
-    G.onClick(raycaster => {
+    function onClick(raycaster) {
       const hits = raycaster.intersectObjects(pickables.map(p => p[0]));
       if (!hits.length) return false;
       const hit = pickables.find(p => p[0] === hits[0].object);
       openCard(hit[1].username);
       return true;
-    });
+    }
 
     async function refresh(force) {
       try {
@@ -827,6 +846,6 @@
     setInterval(() => { if (!document.hidden) refresh(false); }, 15000);
   }
 
-  if (window.MindGalaxy) start();
-  else document.addEventListener("mindgalaxy:ready", start, { once: true });
+  document.addEventListener("mindgalaxy:ready", bind);
+  if (window.MindGalaxy) bind();
 })();

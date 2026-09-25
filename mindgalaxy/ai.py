@@ -117,8 +117,10 @@ EXPLORE_SYSTEM = """You power the "gas cloud" around a star in a journaling app:
 one of their notes one level at a time, like opening nested nebulae. Each call returns ONE level.
 Answers are shared by everyone exploring the same subject, so write for a general reader.
 
-Return kind "choices" to offer the next level (3-10 choices, each with a one-line blurb), or kind
-"detail" when the path is specific enough to show concrete things (up to 6 items).
+Return kind "choices" to offer the next level, or kind "detail" when the path is specific enough to show
+concrete things (up to 8 items). Be complete: list every significant option that genuinely exists at this
+level -- often 10 to 25 (all the countries with a real tradition, all the kinds, all the uses ...) --
+not just a handful of famous ones. Keep each blurb to one short line.
 
 Choose the levels that suit the subject:
 - Foods, dishes and ingredients (e.g. noodles, rice, bread, cheese): level 1 = the countries or regions

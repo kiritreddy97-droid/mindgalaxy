@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import functools
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -128,6 +129,8 @@ def create_app(
             PERMANENT_SESSION_LIFETIME=_dt.timedelta(days=30),
         )
     knowledge = ai if ai is not None else KnowledgeAI()
+    # AI calls are slow network waits, so independent ones run side by side.
+    _pool = ThreadPoolExecutor(max_workers=4)
 
     def _store(user_id: Optional[int] = None) -> Storage:
         return Storage(app.config["DB_PATH"], user_id=user_id)
@@ -317,6 +320,17 @@ def create_app(
                     analysis = knowledge.analyze(entry["text"])
                     store.set_analysis(entry_id, analysis)
                 new = {**_brief(entry_id, analysis), "text": entry["text"]}
+                # Prepare the first level of the gas cloud *while* the links
+                # are being worked out (the AI calls run side by side), so the
+                # star is ready to explore the moment it appears.
+                prefetch_key = _explore_key(analysis["subject"], analysis["category"], [])
+                prefetch = None
+                if store.cache_get(prefetch_key) is None:
+                    try:
+                        _spend_ai(store)
+                        prefetch = _pool.submit(knowledge.explore, analysis["subject"], analysis["category"], [])
+                    except QuotaError:
+                        prefetch = None
                 analyses = store.analyses()
                 others = [{**_brief(e.id, analyses[e.id]), "text": e.text}
                           for e in store.all_entries() if e.id != entry_id and e.id in analyses][-150:]
@@ -348,18 +362,20 @@ def create_app(
                     store.set_analysis(entry_id, analysis)
             except AIError as e:
                 return _ai_error(e)
-            # Prepare the first level of the gas cloud while the star is still
-            # forming, so it's ready the moment the star is clicked.
-            try:
-                _explore_level(store, analysis["subject"], analysis["category"], [])
-            except AIError:
-                pass  # it'll simply be fetched on click instead
+            if prefetch is not None:
+                try:
+                    store.cache_put(prefetch_key, prefetch.result(timeout=90))
+                except Exception:  # noqa: BLE001 -- it'll simply be fetched on click instead
+                    pass
         return jsonify({"analysis": analysis, "links": links})
 
-    def _explore_level(store: Storage, subject: str, category: str, path: list[str]) -> dict[str, Any]:
+    def _explore_key(subject: str, category: str, path: list[str]) -> str:
         # Keyed by subject and path only -- never the user or the note -- so
         # one person's "noodles" answer serves everyone.
-        key = "explore:v2:" + hashlib.sha256(json.dumps([knowledge.name, category, subject, path]).encode()).hexdigest()
+        return "explore:v3:" + hashlib.sha256(json.dumps([knowledge.name, category, subject, path]).encode()).hexdigest()
+
+    def _explore_level(store: Storage, subject: str, category: str, path: list[str]) -> dict[str, Any]:
+        key = _explore_key(subject, category, path)
         node = store.cache_get(key)
         if node is None:
             _spend_ai(store)

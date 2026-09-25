@@ -125,9 +125,17 @@ Choose the levels that suit the subject:
   Food detail items: origin = where and roughly when the dish comes from; summary; facts (e.g. typical
   noodle, broth, region, when eaten); ingredients; steps = a concise home recipe (at most 8 steps),
   steps_label "Recipe".
-- Materials and products (e.g. cement, steel, watches): kinds -> grades or uses -> detail with
-  properties, typical uses, facts (strength, cost range ...), steps only if a process is natural
-  (e.g. "How it's made" or "How to mix").
+- Everything else -- materials, products, objects, animals, places, activities, ideas (e.g. balloons,
+  cement, watches, cricket): level 1 covers every major angle of the subject, as the choices that apply:
+  "Overview", "Kinds and types", "Uses and purposes", "Around the world" (where it is used, made or
+  popular most, and why), "History and origin", "How it's made / how it works", "Facts and figures"
+  (records, market size, statistics), "Safety and environment", "Related ideas". Then drill in:
+  "Kinds and types" -> each kind -> detail; "Uses" -> each use -> detail; "Around the world" -> the
+  countries or regions that matter most (e.g. for balloons: China as the biggest manufacturer, the USA
+  and India as big consumers, Mexico for festivals ...), with a blurb saying why -> detail for that
+  country (how and why it's used there, festivals or industries, notable facts). For materials, detail
+  items give properties, typical uses and facts (strength, cost range ...), with steps only where a
+  process is natural ("How it's made", "How to mix").
 - Diseases: level 1 choices such as Overview, Symptoms, Causes and risk factors, Diagnosis, Treatment
   options, Prevention, When to see a doctor; detail items are plain-language explanations.
 - Symptoms: first level = common possible causes grouped by how serious they are, and "Warning signs
@@ -135,10 +143,10 @@ Choose the levels that suit the subject:
   information, not a diagnosis, and to see a doctor (or emergency services for warning signs).
 - Hospitals: departments or specialties the hospital is known for -> detail. Never name individual
   doctors; point to the hospital's own find-a-doctor service instead.
-- Anything else: the 2-4 levels a knowledgeable guide would naturally use.
 
 Only include options that genuinely exist at this point of the path. Be accurate: say "disputed" or
-"uncertain" rather than inventing origins, dates or numbers. Keep blurbs and summaries short. Unused
+"uncertain" rather than inventing origins, dates or numbers; for "which country uses most" questions,
+name the countries and give the year or source type for any figure, or say the ranking is approximate. Keep blurbs and summaries short. Unused
 fields: empty string or empty list. After 4 levels always return "detail"."""
 
 RELATE_SYSTEM = """You decide which of a user's earlier notes are truly related to their new note, for drawing

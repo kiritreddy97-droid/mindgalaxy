@@ -188,7 +188,7 @@ __THREE_JS_TAG__
   /* ---- history calendar ---- */
   .pill-btn { font: inherit; font-size: 11.5px; padding: 3px 11px; border-radius: 20px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
   .pill-btn:hover, .pill-btn[aria-expanded="true"] { background: rgba(255,255,255,0.1); }
-  #history-panel { display: none; top: 150px; left: 26px; width: 300px; max-height: calc(100vh - 250px); overflow-y: auto; padding: 14px; z-index: 25; }
+  #history-panel { display: none; top: 192px; left: 26px; width: 300px; max-height: calc(100vh - 290px); overflow-y: auto; padding: 14px; z-index: 25; }
   #history-panel.open { display: block; }
   body.history-open #legend { display: none; }
   .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -283,12 +283,13 @@ __THREE_JS_TAG__
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
   @media (max-width: 720px) {
     #header .subtitle { display: none; }
-    #search-box { position: fixed; top: 80px; left: 16px; right: 16px; }
+    #search-box { position: fixed; top: 124px; left: 16px; right: 16px; }
+    #stats-line { display: none; }
     #search-box input { width: 100%; }
-    #legend { top: 128px; left: 16px; width: 190px; max-height: 26vh; }
+    #legend { top: 172px; left: 16px; width: 190px; max-height: 15vh; }
     #user-chip span { display: none; }
-    #user-chip { margin-left: auto; }
-    #history-panel { top: 128px; left: 16px; right: 16px; width: auto; max-height: 52vh; }
+    #user-chip { margin-left: 0; }
+    #history-panel { top: 124px; left: 16px; right: 16px; width: auto; max-height: 52vh; }
     body.history-open #search-box { display: none; }
     #controls-hint { display: none; }
     #replay-btn { bottom: 92px; right: 16px; }
@@ -390,6 +391,7 @@ __THREE_JS_TAG__
 (function () {
   "use strict";
   const MODE = "__MODE__";
+  let OWNER = null; // the signed-in username: the "soul" at the head of the galaxy
 
   // ---------------------------------------------------------------
   // Data loading
@@ -421,6 +423,7 @@ __THREE_JS_TAG__
       if (me.username) {
         document.getElementById("user-name").textContent = me.username;
         document.getElementById("user-chip").style.display = "flex";
+        OWNER = me.username;
         startIdleWatch(me);
       }
       return fetch("/api/stars").then(r => r.json());
@@ -711,6 +714,35 @@ __THREE_JS_TAG__
     });
     scene.add(lineGroup);
 
+    // ---- your "soul": the head of the galaxy, named after you, with faint
+    // rays to the heart of each constellation of your thoughts ----
+    let soul = null;
+    const soulTargets = [];
+    if (OWNER) {
+      const additive = { map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
+      soul = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, color: 0xfff2d0 }));
+      soul.scale.set(14, 14, 1);
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, color: 0xffc46e, opacity: 0.35 }));
+      halo.scale.set(34, 34, 1);
+      soul.userData = { halo };
+      soulTargets.push(soul);
+      scene.add(halo, soul);
+      const nameLabel = makeLabel("✦ " + OWNER, "#ffd27a", true);
+      nameLabel.scale.multiplyScalar(2.2); // the head of the galaxy reads from across it
+      nameLabel.position.set(0, 14, 0);
+      scene.add(nameLabel);
+      soulTargets.unshift(nameLabel); // the name is drawn on top, so it's the surest target
+      const centres = {};
+      stars.forEach(s => {
+        const c = centres[s.cluster] || (centres[s.cluster] = { v: new THREE.Vector3(), n: 0 });
+        c.v.add(new THREE.Vector3(s.x, s.y, s.z)); c.n++;
+      });
+      Object.values(centres).forEach(c => {
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), c.v.divideScalar(c.n)]);
+        scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.14 })));
+      });
+    }
+
     // ---------------------------------------------------------------
     // Knowledge gas clouds: one coloured nebula per facet of what the
     // thought is about (cuisines, kinds of milk, cars by speed, ...)
@@ -982,7 +1014,8 @@ __THREE_JS_TAG__
         if (hit) hit.scale.set(hit.userData.baseScale * 1.35, hit.userData.baseScale * 1.35, 1);
         hovered = hit;
       }
-      dom.style.cursor = (hit || lab) ? "pointer" : "grab";
+      const onSoul = !lab && soulTargets.length > 0 && raycaster.intersectObjects(hit ? soulTargets.slice(0, 1) : soulTargets).length > 0;
+      dom.style.cursor = (hit || lab || onSoul) ? "pointer" : "grab";
     });
 
     dom.addEventListener("click", e => {
@@ -995,8 +1028,15 @@ __THREE_JS_TAG__
         else setActiveFacet(lab.userData.facetIdx, lab.userData.kind === "item" ? lab.userData.itemIdx : null);
         return;
       }
-      const hit = pick(e.clientX, e.clientY);
-      if (hit) selectStar(hit.userData.index);
+      const hit = pick(e.clientX, e.clientY); // also aims the raycaster at the click
+      const onName = soulTargets.length && raycaster.intersectObject(soulTargets[0]).length > 0;
+      if (hit && !onName) { selectStar(hit.userData.index); return; }
+      if (onName || (soul && raycaster.intersectObject(soul).length)) {
+        // your soul star opens the story of your galaxy: the history calendar
+        if (selected >= 0) deselect();
+        toggleHistory(true);
+        flyTo(new THREE.Vector3(0, 0, 0), 80);
+      }
     });
 
     // ---- selection ----
@@ -1717,6 +1757,11 @@ __THREE_JS_TAG__
         camDirty = true;
       }
       if (camDirty) updateCamera();
+      if (soul) {
+        const t = performance.now() / 1000;
+        soul.scale.setScalar(14 * (1 + 0.07 * Math.sin(t * 1.7)));
+        soul.userData.halo.material.opacity = 0.26 + 0.1 * Math.sin(t * 1.1);
+      }
       if (selected >= 0 && clouds[selected]) {
         const m = camera.matrixWorld.elements;
         const up = new THREE.Vector3(m[4], m[5], m[6]).normalize();

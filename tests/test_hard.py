@@ -545,3 +545,10 @@ def test_migration_is_idempotent_and_keeps_data(tmp_path):
         assert s.count() == 4
         cols = [r[1] for r in s.conn.execute("PRAGMA table_info(entries)").fetchall()]
         assert cols.count("user_id") == 1 and cols.count("analysis") == 1
+
+
+def test_keyless_provider_sends_no_authorization_header(fake_llm_server):
+    # anonymous free tiers reject requests carrying any Authorization header
+    _Handler.script = {"anon": lambda body: (200, _chat('{"kind":"detail","n":0,"items":[]}'))}
+    FreeProvider("anon", f"{fake_llm_server}/anon", "", "m").complete_json("s", "u", SCHEMA)
+    assert _Handler.log[-1][2] is None

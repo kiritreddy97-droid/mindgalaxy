@@ -361,7 +361,7 @@ def create_app(
                 subject, category = analysis["subject"], analysis["category"]
                 # Keyed by subject and path only -- never the user or the
                 # note -- so one person's "noodles" answer serves everyone.
-                key = "explore:v1:" + hashlib.sha256(
+                key = "explore:v2:" + hashlib.sha256(
                     json.dumps([knowledge.name, category, subject, path]).encode()).hexdigest()
                 node = store.cache_get(key)
                 if node is None:

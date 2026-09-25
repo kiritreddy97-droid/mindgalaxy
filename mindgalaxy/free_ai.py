@@ -52,11 +52,11 @@ class FreeProvider:
     model: str
 
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+        headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
+        if self.api_key:  # key-less (anonymous) endpoints reject any Authorization header
+            headers["Authorization"] = f"Bearer {self.api_key}"
         req = urllib.request.Request(
-            self.base_url.rstrip("/") + "/chat/completions",
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}",
-                     "User-Agent": USER_AGENT},
+            self.base_url.rstrip("/") + "/chat/completions", data=json.dumps(body).encode(), headers=headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:

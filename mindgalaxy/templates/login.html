@@ -88,7 +88,7 @@
   </form>
   <p class="privacy">Don't reuse a bank or phone PIN here. Thoughts are stored in this site's database and,
     to build their gas clouds, sent to an AI service (a free provider such as Google Gemini or Groq, or Anthropic's Claude).
-    You're signed out after 10 minutes of inactivity.</p>
+    You're signed out automatically when you're inactive for a while.</p>
 </main>
 <script>
 (function () {
@@ -188,7 +188,7 @@
   })(0);
   const reason = new URLSearchParams(location.search).get("reason");
   const notices = {
-    idle: "You were signed out after 10 minutes of inactivity. Sign in again to continue.",
+    idle: "You were signed out because you were inactive. Sign in again to continue.",
     expired: "Your session ended because it was inactive. Sign in again to continue.",
   };
   if (notices[reason]) {

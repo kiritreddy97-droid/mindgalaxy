@@ -684,7 +684,10 @@ def create_app(
 
     @app.get("/api/health")
     def health():
-        return jsonify({"status": "ok"})
+        # Says only *whether* the call relay is set up and answering -- never
+        # any credential -- so it can be checked without signing in.
+        relay = any("turn:" in str(s.get("urls")) for s in ice_servers())
+        return jsonify({"status": "ok", "ai": knowledge.enabled, "call_relay": relay})
 
     return app
 

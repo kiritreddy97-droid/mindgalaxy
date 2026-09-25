@@ -135,6 +135,33 @@ _SCHEMA = [
         jwk TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )""",
+    # Which page session (PeerJS id) each user is reachable at for calls.
+    """CREATE TABLE IF NOT EXISTS presence (
+        user_id INTEGER PRIMARY KEY,
+        peer_id TEXT NOT NULL,
+        seen TEXT NOT NULL
+    )""",
+    # Two families joined by their elders (a < b).
+    """CREATE TABLE IF NOT EXISTS family_links (
+        a INTEGER NOT NULL,
+        b INTEGER NOT NULL,
+        since TEXT NOT NULL,
+        PRIMARY KEY (a, b)
+    )""",
+    # Calls: who may be in a call is fixed when it's created (see social.py).
+    """CREATE TABLE IF NOT EXISTS call_rooms (
+        id TEXT PRIMARY KEY,
+        created_by INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS call_members (
+        room_id TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        joined INTEGER NOT NULL DEFAULT 0,
+        peer_id TEXT,
+        PRIMARY KEY (room_id, user_id)
+    )""",
     # View-once media: only ciphertext, deleted the moment it's opened (or
     # after MEDIA_TTL_DAYS unopened). The chat keeps a stub message.
     """CREATE TABLE IF NOT EXISTS media (
@@ -153,6 +180,12 @@ _SCHEMA = [
 # Columns added to `entries` after the first release; existing databases are
 # migrated in place with ALTER TABLE.
 _ENTRY_COLUMNS = {"user_id": "INTEGER", "analysis": "TEXT", "share_family": "INTEGER NOT NULL DEFAULT 0"}
+# Columns added to other tables after they first shipped.
+_LATER_COLUMNS = {
+    "users": {"tour_done": "INTEGER NOT NULL DEFAULT 0"},
+    "family_members": {"role": "TEXT NOT NULL DEFAULT 'other'"},
+    "requests": {"family2_id": "INTEGER"},
+}
 
 _migrated: set[str] = set()
 
@@ -203,6 +236,11 @@ class Storage:
         for col, typ in _ENTRY_COLUMNS.items():
             if col not in have:
                 self.conn.execute(f"ALTER TABLE entries ADD COLUMN {col} {typ}")
+        for table, cols in _LATER_COLUMNS.items():
+            have = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            for col, typ in cols.items():
+                if col not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         self.conn.execute("CREATE INDEX IF NOT EXISTS entries_user ON entries (user_id)")
         self.conn.commit()
 

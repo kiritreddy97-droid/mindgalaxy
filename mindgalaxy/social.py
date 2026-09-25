@@ -45,7 +45,18 @@ TRANSITIONS = {
     "partner": ("friend", "partner"),
     "unpartner": ("partner", "friend"),
 }
-FAMILY_KINDS = ("family_invite", "family_leave")
+FAMILY_KINDS = ("family_invite", "family_leave", "family_link")
+
+# Each member picks their own role in each family.
+ROLES = [
+    "mother", "father", "son", "daughter", "grandfather", "grandmother", "grandson", "granddaughter",
+    "stepmother", "stepfather", "stepson", "stepdaughter", "mother-in-law", "father-in-law",
+    "son-in-law", "daughter-in-law", "husband", "wife", "brother", "sister", "brother-in-law",
+    "sister-in-law", "uncle", "aunt", "nephew", "niece", "cousin", "guardian", "other",
+]
+# Only elders can link their family with another family.
+ELDERS = {"mother", "father", "stepmother", "stepfather", "grandmother", "grandfather",
+          "mother-in-law", "father-in-law"}
 CHAT_STATUSES = ("friend", "partner")
 
 
@@ -161,16 +172,25 @@ class Social:
         self.db.commit()
         return int(cur.lastrowid)
 
-    def respond(self, me: int, request_id: int, accept: bool) -> dict[str, Any]:
-        row = self._one("SELECT from_user, to_user, kind, family_id, status FROM requests WHERE id = ?", (request_id,))
+    def respond(self, me: int, request_id: int, accept: bool, role: Optional[str] = None) -> dict[str, Any]:
+        row = self._one("SELECT from_user, to_user, kind, family_id, status, family2_id FROM requests WHERE id = ?",
+                        (request_id,))
         if not row or row[1] != me:
             raise SocialError("No such request.", 404)
-        sender, _, kind, family_id, state = row
+        sender, _, kind, family_id, state, family2_id = row
         if state != "pending":
             raise SocialError("That request was already answered.", 409)
         if accept:
             self._usable_pair(me, sender)
-            self._apply(sender, me, kind, family_id)
+            if kind == "family_link":
+                if self.role(sender, family_id) not in ELDERS or self.role(me, family2_id) not in ELDERS:
+                    raise SocialError("Only elders can link families.", 403)
+                a, b = _pair(family_id, family2_id)
+                self.db.execute("INSERT OR IGNORE INTO family_links (a, b, since) VALUES (?, ?, ?)", (a, b, _now()))
+            else:
+                self._apply(sender, me, kind, family_id)
+                if kind == "family_invite" and role:
+                    self.set_role(me, family_id, role)
         self.db.execute("UPDATE requests SET status = ? WHERE id = ?", ("accepted" if accept else "declined", request_id))
         self.db.commit()
         return {"accepted": accept, "kind": kind, "status": self.status(me, sender)}
@@ -300,10 +320,62 @@ class Social:
         self.db.commit()
 
     # -- chat ------------------------------------------------------------
+    def linked_families(self, family_id: int) -> list[int]:
+        return [r[0] if r[1] == family_id else r[1] for r in
+                self._all("SELECT a, b FROM family_links WHERE a = ? OR b = ?", (family_id, family_id))]
+
+    def families_linked(self, x: int, y: int) -> bool:
+        mine, theirs = set(self.families_of(x)), set(self.families_of(y))
+        return any(set(self.linked_families(f)) & theirs for f in mine)
+
     def can_chat(self, me: int, other: int) -> bool:
+        """Friends, partners, family, and members of families linked by their elders."""
         if me == other or self.blocked_between(me, other) or self.severed(me, other):
             return False
-        return self.status(me, other) in CHAT_STATUSES or self.share_family(me, other)
+        return (self.status(me, other) in CHAT_STATUSES or self.share_family(me, other)
+                or self.families_linked(me, other))
+
+    # -- family roles and family-to-family links ------------------------
+    def role(self, uid: int, family_id: Optional[int]) -> Optional[str]:
+        row = self._one("SELECT role FROM family_members WHERE family_id = ? AND user_id = ?", (family_id, uid))
+        return row[0] if row else None
+
+    def set_role(self, me: int, family_id: int, role: str) -> None:
+        role = (role or "").strip().lower()
+        if role not in ROLES:
+            raise SocialError("Pick a role from the list.")
+        if me not in self.family_members(family_id):
+            raise SocialError("You're not in that family.", 404)
+        self.db.execute("UPDATE family_members SET role = ? WHERE family_id = ? AND user_id = ?", (role, family_id, me))
+        self.db.commit()
+
+    def send_family_link(self, me: int, family_id: int, to_name: str, their_family_id: Optional[int] = None) -> int:
+        """An elder asks an elder of another family to link the two families.
+        Without their_family_id, the family where they are an elder is used."""
+        other = self.user_id(to_name)
+        self._usable_pair(me, other)
+        if their_family_id is None:
+            led = [f for f in self.families_of(other) if self.role(other, f) in ELDERS and f != family_id]
+            if not led:
+                raise SocialError(f"{self.username(other)} isn't a parent or grandparent in any family.", 409)
+            their_family_id = led[0]
+        if self.role(me, family_id) not in ELDERS:
+            raise SocialError("Only a parent, step-parent, parent-in-law or grandparent can link families.", 403)
+        if self.role(other, their_family_id) not in ELDERS:
+            raise SocialError("Family links must be accepted by one of their elders (a parent or grandparent).", 409)
+        if family_id == their_family_id:
+            raise SocialError("That's the same family.")
+        if their_family_id in self.linked_families(family_id):
+            raise SocialError("Those families are already linked.", 409)
+        if self._one("SELECT 1 FROM requests WHERE status = 'pending' AND kind = 'family_link' AND "
+                     "((family_id = ? AND family2_id = ?) OR (family_id = ? AND family2_id = ?))",
+                     (family_id, their_family_id, their_family_id, family_id)):
+            raise SocialError("There's already a pending link between those families.", 409)
+        cur = self.db.execute(
+            "INSERT INTO requests (from_user, to_user, kind, family_id, family2_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (me, other, "family_link", family_id, their_family_id, _now()))
+        self.db.commit()
+        return int(cur.lastrowid)
 
     def send_message(self, me: int, to_name: str, text: str) -> int:
         other = self.user_id(to_name)
@@ -391,15 +463,27 @@ class Social:
         rel = {(b if a == me else a): status
                for a, b, status in self._all("SELECT a, b, status FROM relations WHERE a = ? OR b = ?", (me, me))}
         fam_rows = self._all(
-            "SELECT f.id, f.name, m.user_id, u.username FROM families f "
+            "SELECT f.id, f.name, m.user_id, u.username, m.role FROM families f "
             "JOIN family_members m ON m.family_id = f.id JOIN users u ON u.id = m.user_id "
             "WHERE f.id IN (SELECT family_id FROM family_members WHERE user_id = ?) ORDER BY f.id, m.joined_at", (me,))
         fams: dict[int, dict[str, Any]] = {}
         family_of: dict[int, list[str]] = {}
-        for fid, fname, uid, uname in fam_rows:
-            fams.setdefault(fid, {"id": fid, "name": fname, "members": []})["members"].append(uname)
-            if uid != me:
+        for fid, fname, uid, uname, role in fam_rows:
+            f = fams.setdefault(fid, {"id": fid, "name": fname, "members": [], "roles": {}, "links": []})
+            f["members"].append(uname)
+            f["roles"][uname] = role
+            if uid == me:
+                f["my_role"] = role
+                f["i_am_elder"] = role in ELDERS
+            else:
                 family_of.setdefault(uid, []).append(fname)
+        for fid, f in fams.items():
+            for other_fid in self.linked_families(fid):
+                rows = self._all("SELECT f.name, u.username, m.role FROM families f JOIN family_members m "
+                                 "ON m.family_id = f.id JOIN users u ON u.id = m.user_id WHERE f.id = ?", (other_fid,))
+                if rows:
+                    f["links"].append({"id": other_fid, "name": rows[0][0],
+                                       "members": [{"username": r[1], "role": r[2]} for r in rows]})
         hidden = blocked | severed
         related = (set(rel) | set(family_of)) - hidden
         recent = [r[0] for r in self._all("SELECT id FROM users WHERE id != ? ORDER BY id DESC LIMIT ?",
@@ -412,14 +496,23 @@ class Social:
             names = dict(self._all(f"SELECT id, username FROM users WHERE id IN ({marks})", tuple(ids)))
             counts = dict(self._all(f"SELECT user_id, COUNT(*) FROM entries WHERE user_id IN ({marks}) GROUP BY user_id",
                                     tuple(ids)))
+        online = set()
+        if ids:
+            cutoff = (_dt.datetime.utcnow() - _dt.timedelta(seconds=150)).isoformat()
+            online = {r[0] for r in self._all(
+                f"SELECT user_id FROM presence WHERE seen >= ? AND user_id IN ({marks})", (cutoff, *ids))}
         galaxies = [{"username": names.get(uid, "?"), "status": rel.get(uid), "families": family_of.get(uid, []),
                      "stars": int(counts.get(uid, 0)),
                      "can_chat": rel.get(uid) in CHAT_STATUSES or uid in family_of}
                     for uid in ids]
-        reqs_in = [{"id": r[0], "from": r[1], "kind": r[2], "family_id": r[3], "at": r[4], "family_name": r[5]}
+        for uid, g in zip(ids, galaxies):
+            g["online"] = uid in online
+        reqs_in = [{"id": r[0], "from": r[1], "kind": r[2], "family_id": r[3], "at": r[4], "family_name": r[5],
+                    "family2_id": r[7], "family2_name": r[8]}
                    for r in self._all(
-                       "SELECT r.id, u.username, r.kind, r.family_id, r.created_at, f.name, r.from_user FROM requests r "
-                       "JOIN users u ON u.id = r.from_user LEFT JOIN families f ON f.id = r.family_id "
+                       "SELECT r.id, u.username, r.kind, r.family_id, r.created_at, f.name, r.from_user, r.family2_id, "
+                       "f2.name FROM requests r JOIN users u ON u.id = r.from_user "
+                       "LEFT JOIN families f ON f.id = r.family_id LEFT JOIN families f2 ON f2.id = r.family2_id "
                        "WHERE r.to_user = ? AND r.status = 'pending' ORDER BY r.id DESC", (me,))
                    if r[6] not in blocked]
         reqs_out = [{"id": r[0], "to": r[1], "kind": r[2], "family_id": r[3]}
@@ -428,7 +521,14 @@ class Social:
                         "WHERE r.from_user = ? AND r.status = 'pending' ORDER BY r.id DESC", (me,))]
         blocked_names = [r[0] for r in self._all(
             "SELECT u.username FROM blocks b JOIN users u ON u.id = b.blocked WHERE b.blocker = ?", (me,))]
-        return {"me": self.username(me), "galaxies": galaxies, "requests_in": reqs_in, "requests_out": reqs_out,
+        # members of linked families are reachable too
+        linked_names = {m["username"] for f in fams.values() for link in f["links"] for m in link["members"]}
+        for g in galaxies:
+            if g["username"] in linked_names:
+                g["can_chat"] = True
+            if not g["can_chat"]:
+                g["online"] = False  # only people you can reach see whether you're online
+        return {"me": self.username(me), "roles": ROLES, "elders": sorted(ELDERS), "galaxies": galaxies, "requests_in": reqs_in, "requests_out": reqs_out,
                 "families": list(fams.values()), "swallows": self.unseen_swallows(me), "blocked": blocked_names}
 
     def _family_name(self, family_id: Optional[int]) -> Optional[str]:

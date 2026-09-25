@@ -34,6 +34,7 @@ from flask import Flask, g, jsonify, redirect, request, send_from_directory, ses
 from . import auth
 from .ai import MEDICAL, AIError, KnowledgeAI, QuotaError
 from .engine import build_galaxy
+from .calls import Calls
 from .social import Media, Social, SocialError
 from .exporter import render_html
 from .storage import DEFAULT_DB_PATH, Storage
@@ -60,6 +61,36 @@ def _client_ip() -> str:
         if real.strip():
             return real.strip()
     return request.remote_addr or "unknown"
+
+
+_ice_cache: dict[str, Any] = {"at": 0.0, "servers": None}
+
+
+def ice_servers() -> list[dict[str, Any]]:
+    """How browsers find each other for calls. Public STUN always; plus
+    Cloudflare's TURN relay (free up to 1,000 GB/month) when
+    CF_TURN_KEY_ID and CF_TURN_API_TOKEN are set, for networks that block
+    direct connections. TURN relays encrypted media it cannot read."""
+    servers: list[dict[str, Any]] = [{"urls": ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"]}]
+    key_id, token = os.environ.get("CF_TURN_KEY_ID"), os.environ.get("CF_TURN_API_TOKEN")
+    if not (key_id and token):
+        return servers
+    if _ice_cache["servers"] and time.time() - _ice_cache["at"] < 3600:
+        return servers + _ice_cache["servers"]
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/generate-ice-servers",
+        data=json.dumps({"ttl": 4 * 3600}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            got = json.loads(resp.read().decode()).get("iceServers") or []
+    except Exception:  # noqa: BLE001 -- calls still work on most networks without TURN
+        return servers
+    got = got if isinstance(got, list) else [got]
+    _ice_cache.update(at=time.time(), servers=got)
+    return servers + got
 
 
 def assemble_galaxy(store: Storage, ai_on: bool) -> dict[str, Any]:
@@ -263,7 +294,12 @@ def create_app(
                 session.clear()
                 return _error("Please sign in.", 401)
             username = user["username"]
-        return jsonify({"username": username, "multi_user": multi_user, "ai": knowledge.enabled,
+        tour_done = True
+        if multi_user:
+            with _store() as store:
+                row = store.conn.execute("SELECT tour_done FROM users WHERE id = ?", (g.uid,)).fetchone()
+            tour_done = bool(row and row[0])
+        return jsonify({"username": username, "multi_user": multi_user, "ai": knowledge.enabled, "tour_done": tour_done,
                         "idle_warn_seconds": IDLE_WARN_SECONDS, "idle_countdown_seconds": IDLE_COUNTDOWN_SECONDS})
 
     # -- galaxy ----------------------------------------------------------
@@ -478,7 +514,75 @@ def create_app(
     @app.post("/api/requests/<int:request_id>/respond")
     @social_route
     def api_respond(social: Social, me: int, request_id: int):
-        return jsonify(social.respond(me, request_id, bool(_body().get("accept"))))
+        b = _body()
+        return jsonify(social.respond(me, request_id, bool(b.get("accept")), b.get("role")))
+
+    @app.post("/api/families/<int:family_id>/role")
+    @social_route
+    def api_family_role(social: Social, me: int, family_id: int):
+        social.set_role(me, family_id, str(_body().get("role", "")))
+        return jsonify({"ok": True})
+
+    @app.post("/api/family-links")
+    @social_route
+    def api_family_link(social: Social, me: int):
+        b = _body()
+        family_id, their_family_id = _int(b.get("family_id")), _int(b.get("their_family_id"))
+        if not family_id:
+            return _error("Choose your family.", 400)
+        return jsonify({"id": social.send_family_link(me, family_id, str(b.get("to", "")), their_family_id)}), 201
+
+    @app.post("/api/tour/done")
+    @login_required
+    def api_tour_done():
+        with _store() as store:
+            store.conn.execute("UPDATE users SET tour_done = 1 WHERE id = ?", (g.uid,))
+            store.conn.commit()
+        return jsonify({"ok": True})
+
+    # -- calls (peer-to-peer; the server only decides who may call whom) --
+    @app.post("/api/presence")
+    @social_route
+    def api_presence(social: Social, me: int):
+        Calls(social).set_presence(me, str(_body().get("peer_id", "")))
+        return jsonify({"ok": True})
+
+    def _names(value: Any) -> list[str]:
+        return [str(n) for n in value][:12] if isinstance(value, list) else []
+
+    @app.post("/api/calls/check")
+    @social_route
+    def api_call_check(social: Social, me: int):
+        b = _body()
+        Calls(social).check_group(me, _names(b.get("usernames")), str(b.get("kind", "")))
+        return jsonify({"ok": True})
+
+    @app.post("/api/calls")
+    @social_route
+    def api_call_create(social: Social, me: int):
+        b = _body()
+        return jsonify(Calls(social).create_room(me, _names(b.get("usernames")), str(b.get("kind", "")))), 201
+
+    @app.get("/api/calls/<room_id>")
+    @social_route
+    def api_call_room(social: Social, me: int, room_id: str):
+        return jsonify(Calls(social).room(me, room_id))
+
+    @app.post("/api/calls/<room_id>/join")
+    @social_route
+    def api_call_join(social: Social, me: int, room_id: str):
+        return jsonify(Calls(social).join(me, room_id, str(_body().get("peer_id", ""))))
+
+    @app.post("/api/calls/<room_id>/leave")
+    @social_route
+    def api_call_leave(social: Social, me: int, room_id: str):
+        Calls(social).leave(me, room_id)
+        return jsonify({"ok": True})
+
+    @app.get("/api/calls/ice")
+    @login_required
+    def api_ice():
+        return jsonify({"iceServers": ice_servers()})
 
     @app.post("/api/requests/<int:request_id>/cancel")
     @social_route

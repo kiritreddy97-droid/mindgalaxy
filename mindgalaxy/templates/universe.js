@@ -28,6 +28,7 @@
     unpartner: "asks to go back to being friends",
     family_invite: "invites you into the family",
     family_leave: "asks to leave the family",
+    family_link: "(an elder) asks to link their family",
   };
   const EMOJI = ["😀", "😂", "😍", "👍", "🙏", "🔥", "❤️", "😢", "🎉", "😮"];
 
@@ -81,24 +82,89 @@
       return new THREE.Vector3(Math.cos(theta) * Math.cos(lift) * dist, Math.sin(lift) * dist, Math.sin(theta) * Math.cos(lift) * dist);
     }
 
+    // ------------------------------------------------------------------
+    // Every galaxy has its own symbol, derived from its owner's name: a
+    // galaxy type (spiral, barred, ring, elliptical, lenticular, irregular,
+    // grand design), arm count, two colours and a tilt. The same symbol is
+    // drawn in 3D in the universe and as a small logo on tags, cards,
+    // chats and calls.
+    // ------------------------------------------------------------------
+    const TYPES = ["spiral", "barred", "ring", "elliptical", "lenticular", "irregular", "grand"];
+    function symbolOf(name) {
+      const h = hash(name), h2 = hash(name + "*");
+      return {
+        type: TYPES[h % TYPES.length],
+        arms: 2 + (h2 % 4),                 // 2-5 arms
+        hue: (h >> 8) % 360,
+        hue2: ((h >> 8) % 360 + 40 + (h2 % 140)) % 360,
+        twist: 3.5 + ((h2 >> 6) % 30) / 10, // how tightly the arms wind
+        tilt: ((h >> 16) % 100) / 100 * 0.9 - 0.45,
+        seed: h2,
+      };
+    }
+    function rng(seed) { let x = seed || 1; return () => ((x = Math.imul(x ^ (x >>> 15), 2246822507) ^ Math.imul(x ^ (x >>> 13), 3266489909)) >>> 0) / 4294967296; }
+
+    // points (x, y in -1..1, t = distance from centre 0..1) for a symbol
+    function symbolPoints(sym, n) {
+      const r = rng(sym.seed), pts = [];
+      for (let i = 0; i < n; i++) {
+        const t = Math.pow(r(), 0.8);
+        let x, y;
+        switch (sym.type) {
+          case "elliptical": {
+            const a = r() * Math.PI * 2, d = Math.pow(r(), 1.6);
+            x = Math.cos(a) * d; y = Math.sin(a) * d * 0.62;
+            pts.push([x, y, d]); continue;
+          }
+          case "lenticular": {
+            const a = r() * Math.PI * 2, d = Math.pow(r(), 1.3);
+            x = Math.cos(a) * d; y = Math.sin(a) * d * 0.28;
+            pts.push([x, y, d]); continue;
+          }
+          case "ring": {
+            if (r() < 0.25) { const a = r() * 6.283, d = r() * 0.22; pts.push([Math.cos(a) * d, Math.sin(a) * d, d]); continue; }
+            const a = r() * Math.PI * 2, d = 0.72 + (r() - 0.5) * 0.18;
+            pts.push([Math.cos(a) * d, Math.sin(a) * d, d]); continue;
+          }
+          case "irregular": {
+            const c = Math.floor(r() * 4), cr = rng(sym.seed + c * 97);
+            const cx = cr() * 1.2 - 0.6, cy = cr() * 1.2 - 0.6, d = Math.pow(r(), 0.7) * 0.45, a = r() * 6.283;
+            pts.push([cx + Math.cos(a) * d, cy + Math.sin(a) * d, Math.hypot(cx, cy)]); continue;
+          }
+          case "barred": {
+            if (t < 0.35) { const bx = (r() - 0.5) * 0.9; pts.push([bx, (r() - 0.5) * 0.12, Math.abs(bx)]); continue; }
+            break;
+          }
+        }
+        // spiral families: arms winding out from the centre
+        const arms = sym.type === "grand" ? 2 : sym.arms;
+        const arm = i % arms;
+        const start = sym.type === "barred" ? 0.35 : 0;
+        const tt = start + t * (1 - start);
+        const spread = sym.type === "grand" ? 0.12 : 0.28;
+        const ang = tt * sym.twist + (arm / arms) * Math.PI * 2 + (r() - 0.5) * spread;
+        x = Math.cos(ang) * tt + (r() - 0.5) * 0.06;
+        y = Math.sin(ang) * tt + (r() - 0.5) * 0.06;
+        pts.push([x, y, tt]);
+      }
+      return pts;
+    }
+
     function spiralGalaxy(name, starCount) {
+      const sym = symbolOf(name);
       const group = new THREE.Group();
-      const h = hash(name);
-      const hue = h % 360;
-      const n = 220 + Math.min(starCount, 60) * 8;
+      const n = 260 + Math.min(starCount, 60) * 8;
       const R = 34 + Math.min(starCount, 60) * 0.9;
       const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
-      const c = new THREE.Color();
-      for (let i = 0; i < n; i++) {
-        const arm = i % 2, t = Math.random();
-        const ang = t * 5.2 + arm * Math.PI + (Math.random() - 0.5) * 0.5;
-        const r = t * R;
-        pos[i * 3] = Math.cos(ang) * r + (Math.random() - 0.5) * 2.5;
-        pos[i * 3 + 1] = (Math.random() - 0.5) * 2.2 * (1 - t);
-        pos[i * 3 + 2] = Math.sin(ang) * r + (Math.random() - 0.5) * 2.5;
-        c.setHSL(((hue + t * 60) % 360) / 360, 0.75, 0.55 + (1 - t) * 0.3);
+      const c = new THREE.Color(), c1 = new THREE.Color().setHSL(sym.hue / 360, 0.8, 0.7), c2 = new THREE.Color().setHSL(sym.hue2 / 360, 0.8, 0.6);
+      const r = rng(sym.seed + 7);
+      symbolPoints(sym, n).forEach(([x, y, t], i) => {
+        pos[i * 3] = x * R;
+        pos[i * 3 + 1] = (r() - 0.5) * 3 * (1 - Math.min(1, t));
+        pos[i * 3 + 2] = y * R;
+        c.copy(c1).lerp(c2, Math.min(1, t)).multiplyScalar(0.75 + (1 - Math.min(1, t)) * 0.5);
         col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-      }
+      });
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
@@ -107,14 +173,56 @@
         depthWrite: false, blending: THREE.AdditiveBlending,
       })));
       const core = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: G.glowTex, color: new THREE.Color().setHSL(hue / 360, 0.6, 0.85), transparent: true,
+        map: G.glowTex, color: new THREE.Color().setHSL(sym.hue / 360, 0.6, 0.85), transparent: true,
         depthWrite: false, blending: THREE.AdditiveBlending,
       }));
-      core.scale.set(30, 30, 1);
+      const coreSize = sym.type === "ring" ? 14 : sym.type === "irregular" ? 18 : 30;
+      core.scale.set(coreSize, coreSize, 1);
       group.add(core);
-      group.rotation.x = ((h >> 8) % 100) / 100 * 0.9 - 0.45;
-      group.userData.spin = 0.0008 + ((h >> 4) % 10) / 10000;
+      group.rotation.x = sym.tilt;
+      group.userData.spin = 0.0008 + (sym.seed % 10) / 10000;
       return group;
+    }
+
+    // the same symbol as a small round logo (data: URL, cached)
+    const logoCache = {};
+    function symbolLogo(name, size) {
+      size = size || 64;
+      const key = name + "@" + size;
+      if (logoCache[key]) return logoCache[key];
+      const sym = symbolOf(name);
+      const cnv = document.createElement("canvas");
+      cnv.width = cnv.height = size;
+      const ctx = cnv.getContext("2d");
+      const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+      g.addColorStop(0, `hsl(${sym.hue},55%,18%)`);
+      g.addColorStop(1, "#05060f");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, 6.283); ctx.fill();
+      ctx.save();
+      ctx.translate(size / 2, size / 2);
+      ctx.rotate(sym.tilt * 2);
+      ctx.globalCompositeOperation = "lighter";
+      const R = size * 0.42, dot = Math.max(0.6, size / 70);
+      symbolPoints(sym, Math.round(size * 7)).forEach(([x, y, t]) => {
+        ctx.fillStyle = `hsla(${t < 0.5 ? sym.hue : sym.hue2},85%,${75 - t * 25}%,0.55)`;
+        ctx.fillRect(x * R, y * R, dot, dot);
+      });
+      const core = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 0.14);
+      core.addColorStop(0, "rgba(255,250,235,0.95)");
+      core.addColorStop(1, "rgba(255,250,235,0)");
+      ctx.fillStyle = core;
+      ctx.beginPath(); ctx.arc(0, 0, size * 0.14, 0, 6.283); ctx.fill();
+      ctx.restore();
+      return (logoCache[key] = cnv.toDataURL());
+    }
+    function logoImg(name, size, cls) {
+      const img = document.createElement("img");
+      img.src = symbolLogo(name, (size || 20) * 2);
+      img.width = img.height = size || 20;
+      img.alt = "";
+      img.className = cls || "gx-logo";
+      return img;
     }
 
     function blackHole() {
@@ -175,8 +283,11 @@
         galaxy.position.copy(pos);
         add(galaxy); spinning.push(galaxy);
         // a screen-sized name tag that follows the galaxy (readable at any zoom)
-        const label = el("button", "gx-tag", (rel ? STATUS[rel].emoji + " " : "") + gx.username);
+        const label = el("button", "gx-tag");
         label.type = "button";
+        label.appendChild(logoImg(gx.username, 18));
+        label.appendChild(document.createTextNode((rel ? STATUS[rel].emoji + " " : "") + gx.username));
+        if (gx.online) label.appendChild(el("span", "gx-online", "●"));
         label.style.borderColor = rel ? STATUS[rel].css : "rgba(142,162,255,0.5)";
         label.addEventListener("click", () => openCard(gx.username));
         ui.tags.appendChild(label);
@@ -258,6 +369,12 @@
       .gx-tag { position: absolute; left: 0; top: 0; pointer-events: auto; font: inherit; font-size: 12px; font-weight: 600;
         padding: 3px 10px; border-radius: 20px; border: 1px solid; background: rgba(8,10,28,0.8); color: #eef0ff; cursor: pointer; white-space: nowrap; }
       .gx-tag:hover { background: rgba(30,34,70,0.95); }
+      .gx-tag { display: flex; align-items: center; gap: 6px; }
+      .gx-logo { border-radius: 50%; vertical-align: middle; flex-shrink: 0; box-shadow: 0 0 8px rgba(160,140,255,0.35); }
+      .gx-logo.big { box-shadow: 0 0 16px rgba(160,140,255,0.5); }
+      .gx-title { display: flex; align-items: center; gap: 10px; }
+      .gx-online { color: #5ff08a; font-size: 10px; }
+      #chat-title { display: flex; align-items: center; gap: 6px; }
       #req-btn.has { border-color: rgba(255,210,122,0.6); color: #ffd27a; }
       .soc-panel { position: fixed; top: 66px; right: 26px; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 170px);
         overflow-y: auto; padding: 18px; z-index: 35; display: none; }
@@ -365,6 +482,39 @@
       toastTimer = setTimeout(() => ui.toast.classList.remove("open"), ms || 3500);
     }
 
+    function roleSelect(value) {
+      const sel = document.createElement("select");
+      sel.className = "soc-input";
+      (data.roles || []).forEach(r => {
+        const o = document.createElement("option");
+        o.value = r; o.textContent = r.charAt(0).toUpperCase() + r.slice(1);
+        if (r === (value || "other")) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+    function describe(r) {
+      let t = `${KIND_TEXT[r.kind] || r.kind}`;
+      if (r.kind === "family_link") t += ` “${r.family_name}” with your family “${r.family2_name}”`;
+      else if (r.family_name) t += ` “${r.family_name}”`;
+      return t;
+    }
+    function acceptRow(r) {
+      const wrap = el("div");
+      let sel = null;
+      if (r.kind === "family_invite") {
+        wrap.appendChild(el("div", "soc-note", "Your role in this family:"));
+        sel = roleSelect("other");
+        wrap.appendChild(sel);
+      }
+      const row = el("div", "soc-row"); row.style.marginTop = "6px";
+      row.appendChild(button("Accept", "primary", () => act(() => api("POST", `/api/requests/${r.id}/respond`,
+        { accept: true, role: sel ? sel.value : undefined }), "Accepted")));
+      row.appendChild(button("Decline", "", () => act(() => api("POST", `/api/requests/${r.id}/respond`, { accept: false }))));
+      wrap.appendChild(row);
+      return wrap;
+    }
+
     async function act(fn, okMsg) {
       try {
         await fn();
@@ -396,7 +546,10 @@
       card.appendChild(close);
       const gx = (data && data.galaxies.find(g => g.username === name)) || { username: name, status: null, families: [], stars: 0 };
       const rel = gx.status || (gx.families.length ? "family" : null);
-      card.appendChild(el("h2", null, (rel ? STATUS[rel].emoji + " " : "🌌 ") + name));
+      const title = el("h2", "gx-title");
+      title.appendChild(logoImg(name, 34, "gx-logo big"));
+      title.appendChild(document.createTextNode((rel ? STATUS[rel].emoji + " " : "") + name));
+      card.appendChild(title);
       const bits = [`${gx.stars} ${gx.stars === 1 ? "star" : "stars"}`];
       if (gx.status) bits.push(STATUS[gx.status].label);
       if (gx.families.length) bits.push("Family: " + gx.families.join(", "));
@@ -408,11 +561,8 @@
       const incoming = data.requests_in.filter(r => r.from === name);
       const outgoing = data.requests_out.filter(r => r.to === name);
       incoming.forEach(r => {
-        card.appendChild(el("div", "soc-msg", `${name} ${KIND_TEXT[r.kind] || r.kind}${r.family_name ? " “" + r.family_name + "”" : ""}`));
-        const row = el("div", "soc-row");
-        row.appendChild(button("Accept", "primary", () => act(() => api("POST", `/api/requests/${r.id}/respond`, { accept: true }), "Accepted")));
-        row.appendChild(button("Decline", "", () => act(() => api("POST", `/api/requests/${r.id}/respond`, { accept: false }))));
-        card.appendChild(row);
+        card.appendChild(el("div", "soc-msg", `${name} ${describe(r)}`));
+        card.appendChild(acceptRow(r));
       });
       outgoing.forEach(r => {
         card.appendChild(el("div", "soc-note", `Waiting for ${name} to answer your ${r.kind.replace("_", " ")} request.`));
@@ -455,6 +605,8 @@
       }
       data.families.filter(f => f.members.includes(name)).forEach(f =>
         ask("family_leave", `Ask ${name} to let you leave “${f.name}”`, "", { family_id: f.id }));
+      // calls.js adds its call buttons here
+      document.dispatchEvent(new CustomEvent("gc:card", { detail: { name, gx, card } }));
       card.appendChild(button("🚫 Block", "danger", () => {
         if (confirm(`Block ${name}? This ends any status between you at once and hides chat, requests and shared thoughts. Nothing is deleted, and you can unblock later.`)) {
           act(() => api("POST", "/api/block", { username: name }), `${name} is blocked`).then(closeCard);
@@ -511,13 +663,12 @@
       if (!data.requests_in.length) p.appendChild(el("div", "soc-note", "No requests right now."));
       data.requests_in.forEach(r => {
         const item = el("div", "soc-item");
-        const who = el("b", null, r.from);
+        const who = el("b");
+        who.appendChild(logoImg(r.from, 18));
+        who.appendChild(document.createTextNode(" " + r.from));
         item.appendChild(who);
-        item.appendChild(document.createTextNode(` ${KIND_TEXT[r.kind] || r.kind}${r.family_name ? " “" + r.family_name + "”" : ""}`));
-        const row = el("div", "soc-row"); row.style.marginTop = "8px";
-        row.appendChild(button("Accept", "primary", () => act(() => api("POST", `/api/requests/${r.id}/respond`, { accept: true }), "Accepted")));
-        row.appendChild(button("Decline", "", () => act(() => api("POST", `/api/requests/${r.id}/respond`, { accept: false }))));
-        item.appendChild(row);
+        item.appendChild(document.createTextNode(" " + describe(r)));
+        item.appendChild(acceptRow(r));
         p.appendChild(item);
       });
 
@@ -536,7 +687,33 @@
       data.families.forEach(f => {
         const item = el("div", "soc-item");
         item.appendChild(el("b", null, "🏡 " + f.name));
-        item.appendChild(el("div", "soc-note", f.members.join(", ")));
+        const list = el("div", "soc-note");
+        f.members.forEach((m, k) => {
+          if (k) list.appendChild(document.createTextNode(" · "));
+          list.appendChild(logoImg(m, 14));
+          list.appendChild(document.createTextNode(` ${m} (${(f.roles && f.roles[m]) || "other"})`));
+        });
+        item.appendChild(list);
+        item.appendChild(el("div", "soc-note", "Your role:"));
+        const sel = roleSelect(f.my_role);
+        sel.addEventListener("change", () => act(() => api("POST", `/api/families/${f.id}/role`, { role: sel.value }), "Role updated"));
+        item.appendChild(sel);
+        (f.links || []).forEach(link => {
+          item.appendChild(el("div", "soc-note", `🔗 Linked with family “${link.name}”: ` +
+            link.members.map(m => `${m.username} (${m.role})`).join(", ")));
+        });
+        if (f.i_am_elder) {
+          const who = el("input", "soc-input"); who.type = "text";
+          who.placeholder = "Link with another family — an elder's username";
+          item.appendChild(who);
+          item.appendChild(button("🔗 Send family link request", "", () => {
+            if (!who.value.trim()) return toast("Type the username of a parent or grandparent in the other family.");
+            act(() => api("POST", "/api/family-links", { family_id: f.id, to: who.value.trim().toLowerCase() }),
+              "Family link request sent");
+          }));
+        } else {
+          item.appendChild(el("div", "soc-note", "Only a parent, step-parent, parent-in-law or grandparent can link this family with another family."));
+        }
         if (f.members.length === 1) item.appendChild(button("Delete this family", "", () =>
           act(() => api("POST", `/api/families/${f.id}/leave`, {}))));
         p.appendChild(item);
@@ -547,6 +724,9 @@
         if (!fname.value.trim()) return toast("Give the family a name.");
         act(() => api("POST", "/api/families", { name: fname.value.trim() }), "Family created — invite friends from their galaxy card");
       }));
+
+      // calls.js adds the group-call builder here
+      document.dispatchEvent(new CustomEvent("gc:panel", { detail: { panel: p } }));
 
       if (data.blocked.length) {
         p.appendChild(el("h3", null, "Blocked"));
@@ -615,7 +795,10 @@
     function openChat(name) {
       closeCard();  // the chat takes the card's place on the right
       chatWith = name; chatKey = "";
-      document.getElementById("chat-title").textContent = "💬 " + name;
+      const ct = document.getElementById("chat-title");
+      ct.textContent = "";
+      ct.appendChild(logoImg(name, 22));
+      ct.appendChild(document.createTextNode(" " + name));
       ui.chat.classList.add("open");
       log().innerHTML = "";
       setChatStatus("");
@@ -839,6 +1022,18 @@
         else refresh(true);
       }
     }
+
+    // your own symbol next to your name in the header
+    const chip = document.getElementById("user-name");
+    if (chip && !chip.previousElementSibling) chip.parentNode.insertBefore(logoImg(G.owner, 18), chip);
+
+    // shared with calls.js and tour.js
+    window.GC = {
+      api, toast, logoImg, symbolLogo, openCard, openChat, el: (t, c, x) => el(t, c, x), button,
+      get data() { return data; }, refresh: () => refresh(true),
+      placeOf: name => placeOf(name),
+    };
+    document.dispatchEvent(new Event("gc:ready"));
 
     // ------------------------------------------------------------------
     keys().then(k => api("POST", "/api/keys", { jwk: JSON.stringify(k.pubJwk) })).catch(() => null);

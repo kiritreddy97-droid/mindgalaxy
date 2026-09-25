@@ -196,6 +196,14 @@ Every signed-in user's galaxy floats in a shared universe around yours, labelled
 - **Become enemies** (both accept): a black hole appears on the string between you. Each side can report the other once a day; after 5 reports the black hole swallows that galaxy (everyone involved sees it happen). The pair is cut apart forever: their chat and media are destroyed and neither can ever send the other a request again.
 - **Leave** partnership, family or enmity only when both agree. **Block** always works one-sided and instantly: it ends any status and hides chat, requests and shared thoughts between the two, and deletes nothing.
 
+### Calls, families, symbols and the welcome tour
+
+- **Welcome tour.** A new user's first sign-in starts a guided tour that spotlights each part of the screen; the **?** button replays it.
+- **Galaxy symbols.** Every user gets a unique galaxy symbol derived from their username (spiral, barred, ring, elliptical, lenticular, irregular or grand-design, with its own arms and colours). It's their galaxy in the universe and their logo on name tags, cards, chat and calls.
+- **Audio and video calls** between friends, life partners and family, including **group calls**: audio up to 10 people, video up to 4. Everyone in a call must know everyone else: if A, B and D all know each other but C only knows B and D, then A+B+D and B+C+D can call, but C can never be in a call with A. Family members (and members of families linked by their elders) count as connected.
+  Calls are peer-to-peer WebRTC, always encrypted, and never recorded or stored. A free [PeerJS](https://peerjs.com) switchboard passes only the set-up messages; each page session uses a random id that the server only reveals to people allowed to call it. For networks that block direct connections, set `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN` (a free [Cloudflare TURN](https://developers.cloudflare.com/realtime/turn/) key, 1,000 GB/month) to relay the encrypted media. PeerJS is open source, so you can self-host its server if you outgrow the public one.
+- **Family roles.** Each member picks their own role (mother, father, son, daughter, grandparents, step-parents, in-laws, siblings, aunts and uncles, cousins, and more). Only elders (parents, step-parents, parents-in-law and grandparents) can link their family with another family, and only an elder of the other family can accept.
+
 **Media in chat is view-once and end-to-end encrypted.** Photos show for 10 seconds; audio and video play once. Each browser keeps a private key (ECDH P-256, never exported) and media is encrypted with AES-GCM before it leaves the sender's device. The server stores only ciphertext and deletes it the moment it's opened, or after 7 days unopened. Limits: 4 MB per file; media can only be opened on the device the recipient last used the site on; and nothing can stop someone photographing their screen.
 
 ## Deploying to Vercel

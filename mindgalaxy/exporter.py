@@ -18,6 +18,9 @@ THREE_JS_CDN_URL = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.m
 
 _three_js_cache: str | None = None
 
+# The galaxy ecosystem, calls and the welcome tour (hosted site only).
+SERVER_SCRIPTS = "\n".join(f'<script src="/{name}.js" defer></script>' for name in ("universe", "calls", "tour"))
+
 # Site icon tags; the hosted site serves these files (a standalone export has no server).
 ICON_TAGS = """<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -55,7 +58,7 @@ def render_html(galaxy: dict[str, Any], title: str = "My Mind Galaxy", mode: str
         .replace("__MODE__", mode)
         # the galaxy ecosystem only exists on the (multi-user) server
         .replace("__ICON_TAGS__", ICON_TAGS if mode == "server" else "")
-        .replace("__UNIVERSE_TAG__", '<script src="/universe.js" defer></script>' if mode == "server" else "")
+        .replace("__UNIVERSE_TAG__", SERVER_SCRIPTS if mode == "server" else "")
     )
     return html
 

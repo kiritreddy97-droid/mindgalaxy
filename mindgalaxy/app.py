@@ -239,11 +239,12 @@ def create_app(
             resp.mimetype = "application/manifest+json"
         return resp
 
-    @app.get("/universe.js")
-    def universe_js():
+    @app.get("/<any(universe, calls, tour):script>.js")
+    def hosted_script(script: str):
+        """The ecosystem, calls and tour scripts exist only on the hosted site."""
         if not multi_user:
             return app.response_class("", mimetype="text/javascript")
-        js = (Path(__file__).resolve().parent / "templates" / "universe.js").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parent / "templates" / f"{script}.js").read_text(encoding="utf-8")
         return app.response_class(js, mimetype="text/javascript")
 
     @app.get("/login")

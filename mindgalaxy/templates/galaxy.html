@@ -563,6 +563,8 @@ __UNIVERSE_TAG__
 
     function tick() {
       if (leaving) return;
+      // being on a call (or being rung) is activity, even with hands off the mouse
+      if (window.gcBusy && window.gcBusy()) { last = Date.now(); if (open) close(); }
       const idle = Date.now() - Math.max(last, shared());
       if (idle >= WARN + COUNTDOWN) { signOut("idle"); return; }
       if (idle >= WARN) {

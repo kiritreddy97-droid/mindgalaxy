@@ -254,14 +254,17 @@ class KnowledgeAI:
 
     def _json(self, system: str, user: str, schema: dict[str, Any], effort: str) -> dict[str, Any]:
         """Ask the free providers in turn; Claude (if configured) is the last resort."""
+        failures: list[ProviderError] = []
         for provider in self.free:
             try:
                 return provider.complete_json(system, user, schema)
-            except ProviderError:
-                continue  # rate-limited, out of quota or down: try the next one
+            except ProviderError as e:
+                failures.append(e)  # rate-limited, out of quota, down or misconfigured: try the next one
         if self.claude_on:
             return self._claude_json(system, user, schema, effort)
-        raise AIError("The free AI services are busy or out of today's quota. Try again in a little while.")
+        if failures and all(f.status == 429 for f in failures):
+            raise AIError("The free AI service's rate limit was reached. Wait a minute and try again.")
+        raise AIError("The AI service couldn't answer: " + "; ".join(str(f) for f in failures)[:300])
 
     def _claude_json(self, system: str, user: str, schema: dict[str, Any], effort: str) -> dict[str, Any]:
         resp = self._request(

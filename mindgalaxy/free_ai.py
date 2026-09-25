@@ -16,6 +16,7 @@ Only the standard library is used for HTTP, so no extra dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -28,8 +29,15 @@ USER_AGENT = "MindGalaxy/1.0 (https://github.com/kiritreddy97-droid/mindgalaxy)"
 TIMEOUT = 60
 
 
+log = logging.getLogger("mindgalaxy.ai")
+
+
 class ProviderError(Exception):
     """This provider couldn't answer (quota, outage, bad output); try the next."""
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
 
 
 # name, API-key env var, base URL, default model, model env var
@@ -55,16 +63,36 @@ class FreeProvider:
         headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
         if self.api_key:  # key-less (anonymous) endpoints reject any Authorization header
             headers["Authorization"] = f"Bearer {self.api_key}"
-        req = urllib.request.Request(
-            self.base_url.rstrip("/") + "/chat/completions", data=json.dumps(body).encode(), headers=headers,
-        )
+        return self._request("/chat/completions", headers, json.dumps(body).encode())
+
+    def _request(self, path: str, headers: dict[str, str], data: Optional[bytes] = None) -> dict[str, Any]:
+        req = urllib.request.Request(self.base_url.rstrip("/") + path, data=data, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
-            raise ProviderError(f"{self.name} returned HTTP {e.code}") from e
+            detail = _error_detail(e)
+            # Logged so a failing provider is diagnosable from the server logs
+            # (the user only sees a short message). The key is never logged.
+            log.warning("AI provider %s (model %s) returned HTTP %s: %s", self.name, self.model, e.code, detail)
+            raise ProviderError(f"{self.name} returned HTTP {e.code}: {detail}", e.code) from e
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+            log.warning("AI provider %s unreachable: %r", self.name, e)
             raise ProviderError(f"{self.name} unreachable") from e
+
+    def _discover_model(self) -> Optional[str]:
+        """Ask the provider which models this key can use and pick the best
+        general-purpose one, for when the configured model doesn't exist
+        (models get renamed and retired over time)."""
+        headers = {"User-Agent": USER_AGENT}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        try:
+            listing = self._request("/models", headers)
+        except ProviderError:
+            return None
+        ids = [str(m.get("id", "")).removeprefix("models/") for m in listing.get("data", []) if isinstance(m, dict)]
+        return pick_model(ids, self.model)
 
     def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> dict[str, Any]:
         body = {
@@ -81,15 +109,58 @@ class FreeProvider:
         try:
             data = self._post(body)
         except ProviderError as e:
-            if "HTTP 400" not in str(e):
+            if e.status == 404 or (e.status == 400 and "model" in str(e).lower() and "not" in str(e).lower()):
+                better = self._discover_model()
+                if not better or better == self.model:
+                    raise
+                log.warning("AI provider %s: model %s unavailable, switching to %s", self.name, self.model, better)
+                self.model = body["model"] = better
+                data = self._post(body)
+            elif e.status == 400:
+                body.pop("response_format")  # some models reject JSON mode; the prompt still asks for JSON
+                data = self._post(body)
+            else:
                 raise
-            body.pop("response_format")  # some models reject JSON mode; the prompt still asks for JSON
-            data = self._post(body)
         try:
             text = data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as e:
             raise ProviderError(f"{self.name} sent an unexpected response") from e
         return conform(parse_json_object(text, self.name), schema)
+
+
+def _error_detail(e: urllib.error.HTTPError) -> str:
+    """The provider's own error message, shortened."""
+    try:
+        raw = e.read().decode(errors="replace")
+    except Exception:  # noqa: BLE001 -- best effort only
+        return ""
+    try:
+        err = json.loads(raw)
+        if isinstance(err, list) and err:
+            err = err[0]
+        msg = err.get("error", err) if isinstance(err, dict) else err
+        msg = msg.get("message", msg) if isinstance(msg, dict) else msg
+        raw = str(msg)
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    return re.sub(r"\s+", " ", raw)[:300]
+
+
+def pick_model(ids: list[str], wanted: str) -> Optional[str]:
+    """Best replacement for `wanted` among available model ids: same family
+    (e.g. Gemini Flash), newest version, avoiding specialised variants."""
+    skip = ("image", "tts", "audio", "live", "embed", "vision", "preview-tts", "native", "guard", "whisper")
+    usable = [m for m in ids if m and not any(s in m.lower() for s in skip)]
+    if not usable:
+        return None
+    family = "flash" if "flash" in wanted.lower() else None
+    pool = [m for m in usable if family and family in m.lower() and "lite" not in m.lower()] or usable
+
+    def version(m: str) -> tuple:
+        nums = re.findall(r"\d+(?:\.\d+)?", m)
+        return (0 if ("exp" in m or "preview" in m) else 1, float(nums[0]) if nums else 0.0)
+
+    return max(pool, key=version)
 
 
 def providers_from_env() -> list[FreeProvider]:

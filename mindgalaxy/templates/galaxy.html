@@ -244,6 +244,9 @@ __THREE_JS_TAG__
     flex-direction: column; gap: 14px; z-index: 50; color: var(--muted); font-size: 13px;
     background: radial-gradient(ellipse at 50% 40%, var(--bg-1) 0%, var(--bg-0) 75%);
   }
+  #loading.overlay { background: rgba(3, 4, 14, 0.55); backdrop-filter: blur(2px); }
+  #forming { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #loading-msg { position: relative; margin-top: 230px; font-size: 14px; color: #dfe3ff; letter-spacing: 0.02em; text-shadow: 0 0 12px rgba(142,162,255,0.6); }
   .spinner {
     width: 34px; height: 34px; border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--accent);
@@ -302,7 +305,7 @@ __THREE_JS_TAG__
 </head>
 <body>
 
-<div id="loading"><div class="spinner"></div><div>Charting your galaxy…</div></div>
+<div id="loading" role="status"><canvas id="forming" aria-hidden="true"></canvas><div id="loading-msg">Charting your galaxy…</div></div>
 <div id="empty-state">
   <h2>Your galaxy is empty</h2>
   <div id="empty-hint">Add your first thought with <code>mindgalaxy add "..."</code></div>
@@ -397,7 +400,7 @@ __THREE_JS_TAG__
   // Data loading
   // ---------------------------------------------------------------
   function boot(data) {
-    document.getElementById("loading").style.display = "none";
+    stopForming();
     if (!data || !data.stars || data.stars.length === 0) {
       document.getElementById("empty-state").style.display = "flex";
       if (MODE === "server") {
@@ -433,6 +436,64 @@ __THREE_JS_TAG__
         .finally(() => { window.location.href = "/login"; });
     });
   }
+
+  // ---------------------------------------------------------------
+  // Star formation: gas spirals in, collapses and ignites into a star.
+  // Shown while the galaxy loads and while a new thought becomes a star,
+  // instead of a blank screen.
+  // ---------------------------------------------------------------
+  let formingRaf = 0;
+  function startForming(message, overlay) {
+    const box = document.getElementById("loading");
+    document.getElementById("loading-msg").textContent = message;
+    box.classList.toggle("overlay", !!overlay);
+    box.style.display = "flex";
+    cancelAnimationFrame(formingRaf);
+    const c = document.getElementById("forming"), ctx = c.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+    const cx = c.width / 2, cy = c.height / 2 - 20 * dpr, R = Math.min(c.width, c.height) * 0.42;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const hues = [228, 205, 265, 43, 175];
+    const gas = Array.from({ length: 700 }, () => ({
+      r: R * (0.25 + Math.random() * 0.75), a: Math.random() * Math.PI * 2,
+      s: 0.004 + Math.random() * 0.012, h: hues[(Math.random() * hues.length) | 0],
+      z: 0.6 + Math.random() * 1.6,
+    }));
+    const t0 = performance.now();
+    (function frame(now) {
+      const t = (now - t0) / 1000;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = overlay ? "rgba(3,4,14,0.28)" : "rgba(5,6,15,0.32)";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalCompositeOperation = "lighter";
+      for (const p of gas) {
+        if (!still) {
+          p.a += p.s * (R / (p.r + 20 * dpr));        // inner gas orbits faster
+          p.r *= 0.9965;                                // and slowly falls inward
+          if (p.r < 6 * dpr) { p.r = R * (0.6 + Math.random() * 0.4); p.a = Math.random() * Math.PI * 2; }
+        }
+        const x = cx + Math.cos(p.a) * p.r, y = cy + Math.sin(p.a) * p.r * 0.45; // a tilted disc
+        const fade = Math.min(1, p.r / (R * 0.15));
+        ctx.fillStyle = `hsla(${p.h}, 80%, 70%, ${0.5 * fade})`;
+        ctx.beginPath(); ctx.arc(x, y, p.z * dpr, 0, 6.283); ctx.fill();
+      }
+      // the protostar at the heart: brightens and pulses as it ignites
+      const glow = Math.min(1, 0.25 + t * 0.25) * (1 + 0.08 * Math.sin(t * 3));
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 70 * dpr * glow);
+      g.addColorStop(0, "rgba(255,248,225,0.95)");
+      g.addColorStop(0.25, "rgba(255,210,122,0.55)");
+      g.addColorStop(1, "rgba(142,162,255,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, 70 * dpr * glow, 0, 6.283); ctx.fill();
+      formingRaf = requestAnimationFrame(frame);
+    })(t0);
+  }
+  function stopForming() {
+    cancelAnimationFrame(formingRaf);
+    document.getElementById("loading").style.display = "none";
+  }
+  startForming("Charting your galaxy…", false);
 
   // Stored times are UTC without a zone suffix; read them as UTC so they
   // show in the viewer's local time.
@@ -557,6 +618,7 @@ __THREE_JS_TAG__
           const status = document.getElementById("composer-status");
           status.textContent = "Condensing gas clouds and tracing true connections…";
           status.style.display = "block";
+          startForming("A new star is forming…", true);
           await fetch(`/api/entries/${body.id}/enrich`, {
             method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
           }).catch(() => null);

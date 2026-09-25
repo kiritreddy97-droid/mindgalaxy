@@ -410,7 +410,8 @@ def test_all_free_providers_down_without_claude(fake_llm_server, monkeypatch):
     providers = [FreeProvider(n, f"{fake_llm_server}/{n}", "k", "m") for n in "ab"]
     with pytest.raises(AIError) as e:
         KnowledgeAI(free_providers=providers)._json("s", "u", SCHEMA, "low")
-    assert "free AI services" in str(e.value)
+    msg = str(e.value)
+    assert "a returned HTTP 503" in msg and "b" in msg  # the real reasons, not a vague "busy"
 
 
 def test_free_chain_falls_back_to_claude(fake_llm_server):
@@ -552,3 +553,48 @@ def test_keyless_provider_sends_no_authorization_header(fake_llm_server):
     _Handler.script = {"anon": lambda body: (200, _chat('{"kind":"detail","n":0,"items":[]}'))}
     FreeProvider("anon", f"{fake_llm_server}/anon", "", "m").complete_json("s", "u", SCHEMA)
     assert _Handler.log[-1][2] is None
+
+
+def test_retired_model_is_replaced_automatically(fake_llm_server):
+    def chat(body):
+        if body["model"] != "gemini-9.9-flash":
+            return 404, '[{"error": {"code": 404, "message": "models/old-flash is not found"}}]'
+        return 200, _chat('{"kind":"detail","n":1,"items":[]}')
+
+    def handler(body):
+        return chat(body)
+
+    _Handler.script = {"g": handler}
+    real_do_get = getattr(_Handler, "do_GET", None)
+
+    def do_GET(self):  # the /models listing
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"data": [{"id": "models/gemini-9.9-flash"}, {"id": "models/gemini-9.9-flash-image"},
+                                              {"id": "models/gemini-9.9-flash-lite"}]}).encode())
+
+    _Handler.do_GET = do_GET
+    try:
+        p = FreeProvider("g", f"{fake_llm_server}/g", "k", "old-flash")
+        assert p.complete_json("s", "u", SCHEMA)["kind"] == "detail"
+        assert p.model == "gemini-9.9-flash"
+    finally:
+        if real_do_get is None:
+            del _Handler.do_GET
+
+
+def test_rate_limit_gets_its_own_message(fake_llm_server, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    _Handler.script = {"a": lambda b: (429, '{"error": {"message": "Resource has been exhausted"}}')}
+    with pytest.raises(AIError) as e:
+        KnowledgeAI(free_providers=[FreeProvider("a", f"{fake_llm_server}/a", "k", "m")])._json("s", "u", SCHEMA, "low")
+    assert "rate limit" in str(e.value)
+
+
+def test_provider_error_detail_is_logged_without_key(fake_llm_server, caplog):
+    _Handler.script = {"a": lambda b: (403, '{"error": {"message": "API key not valid. Please pass a valid API key."}}')}
+    with pytest.raises(ProviderError) as e:
+        FreeProvider("a", f"{fake_llm_server}/a", "SECRET-KEY-123", "m").complete_json("s", "u", SCHEMA)
+    assert "API key not valid" in str(e.value)
+    assert "API key not valid" in caplog.text and "SECRET-KEY-123" not in caplog.text

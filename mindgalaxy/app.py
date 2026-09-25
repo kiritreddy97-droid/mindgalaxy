@@ -40,6 +40,8 @@ LOGIN_TEMPLATE = Path(__file__).resolve().parent / "templates" / "login.html"
 AI_DAILY_LIMIT = int(os.environ.get("MINDGALAXY_AI_DAILY_LIMIT", "80"))
 MAX_ENTRY_CHARS = 2000
 MAX_PATH_DEPTH = 5
+# Bump when the linking rules change, so older thoughts get re-checked.
+LINK_VERSION = 2
 # Idle sign-out: after 5 quiet minutes the page shows a 5-minute countdown;
 # the server independently ends sessions untouched for longer than both.
 IDLE_WARN_SECONDS = int(os.environ.get("MINDGALAXY_IDLE_WARN_SECONDS", str(5 * 60)))
@@ -290,7 +292,7 @@ def create_app(
             if not entry:
                 return _error("No such thought.", 404)
             analysis = entry["analysis"]
-            if analysis and analysis.get("linked"):
+            if analysis and analysis.get("linked") == LINK_VERSION:
                 return jsonify({"analysis": analysis, "links": 0})
             # Resumable: if an earlier attempt classified the thought but ran
             # out of quota (or hit an outage) before linking, pick up there.
@@ -327,7 +329,7 @@ def create_app(
                         if store.add_link(entry_id, other["id"], link["kind"], link["reason"], extra):
                             links += 1
                 if not unfinished:
-                    analysis["linked"] = True
+                    analysis["linked"] = LINK_VERSION
                     store.set_analysis(entry_id, analysis)
             except AIError as e:
                 return _ai_error(e)

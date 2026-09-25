@@ -161,6 +161,9 @@ Medical rules:
 - treated_at only between a hospital and a disease, and only if that hospital is nationally or
   internationally renowned for treating that specific disease (this will be checked on the web).
 - never link a hospital to a symptom, and never link a hospital just because it is a hospital.
+- causes: link an everyday event or habit to a symptom it plausibly brought on, and say so in the reason
+  (e.g. "had a huge dinner" -> "my tummy feels tight": overeating commonly causes bloating); likewise
+  food, activity or weather notes that are a common trigger of a symptom or condition in another note.
 Return at most 6 links; return an empty list if nothing is truly related. other_id must be one of
 the given ids."""
 

@@ -1276,6 +1276,21 @@ __THREE_JS_TAG__
       loadExplore(i, st.path.concat([label]));
     }
 
+    function mathBlock(math) {
+      const m = el("div", "kn-math");
+      const inp = el("div", "kn-sub", math.input);
+      inp.style.textTransform = "none";
+      m.appendChild(inp);
+      m.appendChild(el("div", "answer", math.answer));
+      if (math.steps && math.steps.length) {
+        const ol = el("ol");
+        math.steps.forEach(x => ol.appendChild(el("li", null, x)));
+        m.appendChild(ol);
+      }
+      m.style.marginBottom = "10px";
+      return m;
+    }
+
     function renderExplore(i, box) {
       const s = stars[i];
       const st = explore[s.id];
@@ -1283,6 +1298,7 @@ __THREE_JS_TAG__
       const head = el("div", "kn-heading", "Gas cloud");
       sec.appendChild(head);
       box.appendChild(sec);
+      if (s.math) sec.appendChild(mathBlock(s.math)); // "1+1" -> 2, worked out locally, before any exploring
       if (!st) return;
       if (MEDICAL.has(st.category)) {
         sec.appendChild(el("div", "kn-medical",
@@ -1415,17 +1431,7 @@ __THREE_JS_TAG__
 
       const en = entries[activeFacet];
       if (en.math) {
-        const m = el("div", "kn-math");
-        const inp = el("div", "kn-sub", en.math.input);
-        inp.style.textTransform = "none";
-        m.appendChild(inp);
-        m.appendChild(el("div", "answer", en.math.answer));
-        if (en.math.steps && en.math.steps.length) {
-          const ol = el("ol");
-          en.math.steps.forEach(x => ol.appendChild(el("li", null, x)));
-          m.appendChild(ol);
-        }
-        sec.appendChild(m);
+        sec.appendChild(mathBlock(en.math));
       } else {
         if (en.facet.blurb) sec.appendChild(el("div", "kn-blurb", en.facet.blurb));
         en.facet.items.forEach((it, ii) => sec.appendChild(renderItem(it, ii)));

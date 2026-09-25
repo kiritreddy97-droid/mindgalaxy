@@ -341,7 +341,7 @@ def test_big_galaxy_stays_fast(tmp_path):
     with Storage(app.config["DB_PATH"], user_id=1) as s:
         ids = s.add_many([f"thought number {n} about topic {n % 17} and noodles {n % 5}" for n in range(300)])
         for i in ids:
-            s.set_analysis(i, {"category": "other", "subject": f"t{i}", "linked": True})
+            s.set_analysis(i, {"category": "other", "subject": f"t{i}", "linked": app_module.LINK_VERSION})
         for i in range(0, 290, 3):
             s.add_link(ids[i], ids[i + 1], "related", "r")
     start = time.time()
@@ -660,3 +660,18 @@ def test_retired_then_overloaded_chain(fake_llm_server):
         assert p.model == "gemini-3.8-flash"  # the retirement sticks; the overload doesn't
     finally:
         del _Handler.do_GET
+
+
+def test_old_thoughts_are_relinked_when_rules_change(tmp_path, monkeypatch):
+    ai = FakeAI({"pad thai": [("noodles", "made_from")]})
+    c = make_app(tmp_path, ai=ai).test_client()
+    signup(c)
+    n = c.post("/api/entries", json={"text": "I like to eat noodles"}).get_json()["id"]
+    c.post(f"/api/entries/{n}/enrich", json={})
+    p = c.post("/api/entries", json={"text": "Made pad thai tonight"}).get_json()["id"]
+    ai.relate_links = {}  # old rules: nothing related
+    assert c.post(f"/api/entries/{p}/enrich", json={}).get_json()["links"] == 0
+    ai.relate_links = {"pad thai": [("noodles", "made_from")]}
+    assert c.post(f"/api/entries/{p}/enrich", json={}).get_json()["links"] == 0  # same rules: not redone
+    monkeypatch.setattr(app_module, "LINK_VERSION", app_module.LINK_VERSION + 1)
+    assert c.post(f"/api/entries/{p}/enrich", json={}).get_json()["links"] == 1  # new rules: re-checked

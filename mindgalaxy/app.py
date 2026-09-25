@@ -77,16 +77,29 @@ def ice_servers() -> list[dict[str, Any]]:
         return servers
     if _ice_cache["servers"] and time.time() - _ice_cache["at"] < 3600:
         return servers + _ice_cache["servers"]
+    import logging
+    import urllib.error
     import urllib.request
 
-    req = urllib.request.Request(
-        f"https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/generate-ice-servers",
-        data=json.dumps({"ttl": 4 * 3600}).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            got = json.loads(resp.read().decode()).get("iceServers") or []
-    except Exception:  # noqa: BLE001 -- calls still work on most networks without TURN
+    got: Any = None
+    # the current endpoint, then the older one (both return {"iceServers": ...})
+    for path in ("generate-ice-servers", "generate"):
+        req = urllib.request.Request(
+            f"https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/{path}",
+            data=json.dumps({"ttl": 4 * 3600}).encode(),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                got = json.loads(resp.read().decode()).get("iceServers")
+            if got:
+                break
+        except urllib.error.HTTPError as e:
+            # Cloudflare's own message; the key and token are never logged
+            logging.getLogger("mindgalaxy.calls").warning(
+                "Cloudflare TURN (%s) returned HTTP %s: %s", path, e.code, e.read().decode(errors="replace")[:300])
+        except Exception as e:  # noqa: BLE001 -- calls still work on most networks without TURN
+            logging.getLogger("mindgalaxy.calls").warning("Cloudflare TURN (%s) unreachable: %r", path, e)
+    if not got:
         return servers
     got = got if isinstance(got, list) else [got]
     _ice_cache.update(at=time.time(), servers=got)

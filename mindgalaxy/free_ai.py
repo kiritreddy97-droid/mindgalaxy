@@ -43,7 +43,7 @@ class ProviderError(Exception):
 # name, API-key env var, base URL, default model, model env var
 KNOWN_PROVIDERS = [
     ("Gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai",
-     "gemini-2.5-flash", "GEMINI_MODEL"),
+     "gemini-3.8-flash", "GEMINI_MODEL"),
     ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "GROQ_MODEL"),
     ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai/gpt-oss-20b:free",
      "OPENROUTER_MODEL"),
@@ -98,16 +98,37 @@ class FreeProvider:
         ranked = self._available_models()
         return ranked[0] if ranked else None
 
-    def _try_sibling_models(self, body: dict[str, Any], first: ProviderError) -> dict[str, Any]:
-        """Retry the request on up to two other models from this provider."""
-        last = first
-        for model in [m for m in self._available_models() if m != body["model"]][:2]:
-            log.warning("AI provider %s: %s unavailable (HTTP %s), trying %s", self.name, body["model"], last.status, model)
+    def _post_with_fallbacks(self, body: dict[str, Any], max_attempts: int = 4) -> dict[str, Any]:
+        """Post, moving down this provider's models when one can't answer:
+        retired (404) -> switch for good to the best available model;
+        overloaded or out of its free quota (429/5xx) -> try the next model
+        for this request (free limits are per model); JSON mode rejected
+        (other 400s) -> retry without it."""
+        tried: set[str] = set()
+        ranked: Optional[list[str]] = None
+        last: Optional[ProviderError] = None
+        for _ in range(max_attempts):
             try:
-                return self._post({**body, "model": model})
+                return self._post(body)
             except ProviderError as e:
                 last = e
-        raise last
+                retired = e.status == 404 or (e.status == 400 and "model" in str(e).lower() and "not" in str(e).lower())
+                if e.status == 400 and not retired and "response_format" in body:
+                    body.pop("response_format")  # some models reject JSON mode; the prompt still asks for JSON
+                    continue
+                if not (retired or e.status in (429, 500, 502, 503)):
+                    raise
+                tried.add(body["model"])
+                if ranked is None:
+                    ranked = self._available_models()
+                nxt = next((m for m in ranked if m not in tried), None)
+                if nxt is None:
+                    raise
+                log.warning("AI provider %s: %s can't answer (HTTP %s), trying %s", self.name, body["model"], e.status, nxt)
+                if retired and body["model"] == self.model:
+                    self.model = nxt  # retired models stay retired
+                body["model"] = nxt
+        raise last  # type: ignore[misc]
 
     def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> dict[str, Any]:
         body = {
@@ -121,25 +142,7 @@ class FreeProvider:
             "max_tokens": 8000,
             "response_format": {"type": "json_object"},
         }
-        try:
-            data = self._post(body)
-        except ProviderError as e:
-            if e.status == 404 or (e.status == 400 and "model" in str(e).lower() and "not" in str(e).lower()):
-                better = self._discover_model()
-                if not better or better == self.model:
-                    raise
-                log.warning("AI provider %s: model %s unavailable, switching to %s", self.name, self.model, better)
-                self.model = body["model"] = better
-                data = self._post(body)
-            elif e.status == 400:
-                body.pop("response_format")  # some models reject JSON mode; the prompt still asks for JSON
-                data = self._post(body)
-            elif e.status in (429, 500, 503):
-                # Overloaded or out of this model's free quota. Free limits are
-                # per model, so a sibling model often still answers.
-                data = self._try_sibling_models(body, e)
-            else:
-                raise
+        data = self._post_with_fallbacks(body)
         try:
             text = data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as e:

@@ -631,3 +631,32 @@ def test_rank_models():
            "gemini-3.6-flash-image", "gemini-2.5-pro", "gemma-4-31b"]
     assert rank_models(ids, "gemini-2.5-flash")[:4] == [
         "gemini-3.6-flash", "gemini-2.5-flash", "gemini-3.7-flash-preview", "gemini-2.5-flash-lite"]
+
+
+def test_retired_then_overloaded_chain(fake_llm_server):
+    # exactly what production hit: 2.5 retired (404) -> 3.8 overloaded (503) -> next model answers
+    def chat(body):
+        m = body["model"]
+        if m == "gemini-2.5-flash":
+            return 404, '[{"error": {"message": "This model models/gemini-2.5-flash is no longer available"}}]'
+        if m == "gemini-3.8-flash":
+            return 503, '[{"error": {"message": "This model is currently experiencing high demand."}}]'
+        return 200, _chat('{"kind":"detail","n":1,"items":["%s"]}' % m)
+
+    _Handler.script = {"g": chat}
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"data": [{"id": "models/" + m} for m in
+                                              ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash",
+                                               "gemini-3.8-flash-lite", "gemini-3.8-flash-image"]]}).encode())
+
+    _Handler.do_GET = do_GET
+    try:
+        p = FreeProvider("g", f"{fake_llm_server}/g", "k", "gemini-2.5-flash")
+        assert p.complete_json("s", "u", SCHEMA)["items"] == ["gemini-3.5-flash"]
+        assert p.model == "gemini-3.8-flash"  # the retirement sticks; the overload doesn't
+    finally:
+        del _Handler.do_GET

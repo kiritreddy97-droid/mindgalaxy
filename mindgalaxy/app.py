@@ -33,6 +33,7 @@ from flask import Flask, g, jsonify, redirect, request, session
 from . import auth
 from .ai import MEDICAL, AIError, KnowledgeAI, QuotaError
 from .engine import build_galaxy
+from .social import Media, Social, SocialError
 from .exporter import render_html
 from .storage import DEFAULT_DB_PATH, Storage
 
@@ -72,10 +73,12 @@ def assemble_galaxy(store: Storage, ai_on: bool) -> dict[str, Any]:
     if not ai_on or not galaxy["stars"]:
         return galaxy
     analyses = store.analyses()
+    shared = store.family_shared_ids()
     index = {s["id"]: i for i, s in enumerate(galaxy["stars"])}
     medical = set()
     for i, s in enumerate(galaxy["stars"]):
         s["analysis"] = analyses.get(s["id"])
+        s["share_family"] = s["id"] in shared
         if s["analysis"] and s["analysis"].get("category") in MEDICAL:
             medical.add(i)
     edges = [e for e in galaxy["edges"]
@@ -113,6 +116,7 @@ def create_app(
     app = Flask(__name__)
     app.config["DB_PATH"] = db_path
     app.config["MULTI_USER"] = multi_user
+    app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 + 64 * 1024  # media limit plus headroom
     if multi_user:
         if not secret_key:
             raise RuntimeError("Multi-user mode needs a SECRET_KEY to sign login sessions.")
@@ -161,8 +165,12 @@ def create_app(
                 if not _signed_in():
                     return _error("Please sign in.", 401)
                 # JSON-only writes: a cross-site form can't send this content
-                # type without a CORS preflight, which blocks CSRF.
-                if request.method == "POST" and not request.is_json:
+                # type without a CORS preflight, which blocks CSRF. Encrypted
+                # media uploads are raw bytes, so they carry a custom header
+                # instead, which also forces a preflight.
+                media_upload = (request.headers.get("X-MindGalaxy") == "1"
+                                and request.mimetype == "application/octet-stream")
+                if request.method == "POST" and not (request.is_json or media_upload):
                     return _error("Expected a JSON request.", 415)
             g.uid = session.get("uid") if multi_user else None
             return view(*args, **kwargs)
@@ -333,7 +341,24 @@ def create_app(
                     store.set_analysis(entry_id, analysis)
             except AIError as e:
                 return _ai_error(e)
+            # Prepare the first level of the gas cloud while the star is still
+            # forming, so it's ready the moment the star is clicked.
+            try:
+                _explore_level(store, analysis["subject"], analysis["category"], [])
+            except AIError:
+                pass  # it'll simply be fetched on click instead
         return jsonify({"analysis": analysis, "links": links})
+
+    def _explore_level(store: Storage, subject: str, category: str, path: list[str]) -> dict[str, Any]:
+        # Keyed by subject and path only -- never the user or the note -- so
+        # one person's "noodles" answer serves everyone.
+        key = "explore:v2:" + hashlib.sha256(json.dumps([knowledge.name, category, subject, path]).encode()).hexdigest()
+        node = store.cache_get(key)
+        if node is None:
+            _spend_ai(store)
+            node = knowledge.explore(subject, category, path)
+            store.cache_put(key, node)
+        return node
 
     @app.post("/api/explore")
     @login_required
@@ -361,15 +386,7 @@ def create_app(
                     analysis = knowledge.analyze(entry["text"])
                     store.set_analysis(entry_id, analysis)
                 subject, category = analysis["subject"], analysis["category"]
-                # Keyed by subject and path only -- never the user or the
-                # note -- so one person's "noodles" answer serves everyone.
-                key = "explore:v2:" + hashlib.sha256(
-                    json.dumps([knowledge.name, category, subject, path]).encode()).hexdigest()
-                node = store.cache_get(key)
-                if node is None:
-                    _spend_ai(store)
-                    node = knowledge.explore(subject, category, path)
-                    store.cache_put(key, node)
+                node = _explore_level(store, subject, category, path)
             except AIError as e:
                 return _ai_error(e)
         return jsonify({"subject": subject, "category": category, "path": path, "node": node})
@@ -380,6 +397,148 @@ def create_app(
         """Heartbeat from an active page: keeps the session alive while in use."""
         return jsonify({"ok": True, "idle_warn_seconds": IDLE_WARN_SECONDS,
                         "countdown_seconds": IDLE_COUNTDOWN_SECONDS})
+
+    # -- the galaxy ecosystem (multi-user only; rules live in social.py) --
+    def social_route(view: Callable) -> Callable:
+        @functools.wraps(view)
+        def wrapper(*args, **kwargs):
+            if not multi_user:
+                return _error("The galaxy ecosystem is only on the hosted site.", 404)
+            try:
+                with _store() as store:
+                    return view(Social(store), g.uid, *args, **kwargs)
+            except SocialError as e:
+                return _error(e.message, e.status)
+        return login_required(wrapper)
+
+    def _body() -> dict[str, Any]:
+        return _json_object()
+
+    def _int(value: Any) -> Optional[int]:
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return None
+        return n if 0 < n < 2**62 else None
+
+    @app.get("/api/universe")
+    @social_route
+    def api_universe(social: Social, me: int):
+        return jsonify(social.universe(me))
+
+    @app.get("/api/users/search")
+    @social_route
+    def api_user_search(social: Social, me: int):
+        return jsonify({"users": social.search(me, request.args.get("q", ""))})
+
+    @app.post("/api/requests")
+    @social_route
+    def api_send_request(social: Social, me: int):
+        b = _body()
+        rid = social.send_request(me, str(b.get("to", "")), str(b.get("kind", "")), _int(b.get("family_id")))
+        return jsonify({"id": rid}), 201
+
+    @app.post("/api/requests/<int:request_id>/respond")
+    @social_route
+    def api_respond(social: Social, me: int, request_id: int):
+        return jsonify(social.respond(me, request_id, bool(_body().get("accept"))))
+
+    @app.post("/api/requests/<int:request_id>/cancel")
+    @social_route
+    def api_cancel(social: Social, me: int, request_id: int):
+        social.cancel_request(me, request_id)
+        return jsonify({"ok": True})
+
+    @app.post("/api/unfriend")
+    @social_route
+    def api_unfriend(social: Social, me: int):
+        social.unfriend(me, str(_body().get("username", "")))
+        return jsonify({"ok": True})
+
+    @app.post("/api/block")
+    @social_route
+    def api_block(social: Social, me: int):
+        social.block(me, str(_body().get("username", "")))
+        return jsonify({"ok": True})
+
+    @app.post("/api/unblock")
+    @social_route
+    def api_unblock(social: Social, me: int):
+        social.unblock(me, str(_body().get("username", "")))
+        return jsonify({"ok": True})
+
+    @app.post("/api/report")
+    @social_route
+    def api_report(social: Social, me: int):
+        return jsonify(social.report(me, str(_body().get("username", ""))))
+
+    @app.post("/api/swallows/seen")
+    @social_route
+    def api_swallows_seen(social: Social, me: int):
+        social.mark_swallows_seen(me)
+        return jsonify({"ok": True})
+
+    @app.post("/api/families")
+    @social_route
+    def api_create_family(social: Social, me: int):
+        return jsonify({"id": social.create_family(me, str(_body().get("name", "")))}), 201
+
+    @app.post("/api/families/<int:family_id>/leave")
+    @social_route
+    def api_leave_family(social: Social, me: int, family_id: int):
+        social.leave_family_alone(me, family_id)
+        return jsonify({"ok": True})
+
+    @app.get("/api/chat/<username>")
+    @social_route
+    def api_chat_read(social: Social, me: int, username: str):
+        after = _int(request.args.get("after")) or 0
+        return jsonify({"messages": social.messages(me, username, after)})
+
+    @app.post("/api/chat/<username>")
+    @social_route
+    def api_chat_send(social: Social, me: int, username: str):
+        return jsonify({"id": social.send_message(me, username, str(_body().get("text", "")))}), 201
+
+    @app.post("/api/keys")
+    @social_route
+    def api_set_key(social: Social, me: int):
+        Media(social).set_key(me, str(_body().get("jwk", "")))
+        return jsonify({"ok": True})
+
+    @app.get("/api/keys/<username>")
+    @social_route
+    def api_get_key(social: Social, me: int, username: str):
+        return jsonify({"jwk": Media(social).get_key(me, username)})
+
+    @app.post("/api/chat/<username>/media")
+    @social_route
+    def api_send_media(social: Social, me: int, username: str):
+        if request.mimetype != "application/octet-stream":
+            return _error("Send the encrypted bytes as application/octet-stream.", 415)
+        h = request.headers
+        media_id = Media(social).send(me, username, h.get("X-Media-Kind", ""), h.get("X-Media-Mime", ""),
+                                      h.get("X-Media-IV", ""), h.get("X-Media-Key", ""), request.get_data())
+        return jsonify({"id": media_id}), 201
+
+    @app.post("/api/media/<int:media_id>/open")
+    @social_route
+    def api_open_media(social: Social, me: int, media_id: int):
+        m = Media(social).open_once(me, media_id)
+        resp = app.response_class(m["data"], mimetype="application/octet-stream")
+        resp.headers.update({"X-Media-Kind": m["kind"], "X-Media-Mime": m["mime"], "X-Media-IV": m["iv"],
+                             "X-Media-Key": m["sender_key"], "Cache-Control": "no-store"})
+        return resp
+
+    @app.get("/api/galaxies/<username>/thoughts")
+    @social_route
+    def api_shared_thoughts(social: Social, me: int, username: str):
+        return jsonify(social.visible_thoughts(me, username))
+
+    @app.post("/api/entries/<int:entry_id>/share")
+    @social_route
+    def api_share(social: Social, me: int, entry_id: int):
+        return jsonify(social.set_family_share(me, entry_id, bool(_body().get("family"))))
 
     @app.get("/api/health")
     def health():

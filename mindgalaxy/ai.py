@@ -64,6 +64,7 @@ ANALYZE_SCHEMA = _obj({
     "conditions": _STRS,
     "hospital_name": _STR,
     "hospital_location": _STR,
+    "rating": {"type": "string", "enum": ["everyone", "mature", "violent"]},
 })
 
 EXPLORE_SCHEMA = _obj({
@@ -107,7 +108,10 @@ summary: one short sentence describing what the note is about.
 symptoms / conditions: any medical symptoms or diseases the note mentions (empty lists if none).
 hospital_name / hospital_location: only if the note names a specific hospital, else empty strings.
 Use category "symptom" when the note is mainly about something the writer is feeling physically,
-"disease" for a named illness or condition, "hospital" for a named hospital or clinic."""
+"disease" for a named illness or condition, "hospital" for a named hospital or clinic.
+rating decides whether the note may be shared with a family that can include children: "mature" for
+sexual or 18+ content, drugs or graphic material; "violent" for violence, threats, self-harm or gore;
+otherwise "everyone". When unsure, choose the stricter rating."""
 
 EXPLORE_SYSTEM = """You power the "gas cloud" around a star in a journaling app: the user explores the subject of
 one of their notes one level at a time, like opening nested nebulae. Each call returns ONE level.

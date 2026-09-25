@@ -529,9 +529,9 @@ def test_providers_from_env(monkeypatch):
     monkeypatch.setenv("FREE_AI_BASE_URL", "http://x/v1")
     monkeypatch.setenv("FREE_AI_MODEL", "local")
     names = [(p.name, p.model) for p in free_ai.providers_from_env()]
-    assert names == [("Gemini", "gemini-custom"), ("Groq", "openai/gpt-oss-120b"), ("Custom", "local")]
+    assert names == [("Groq", "openai/gpt-oss-120b"), ("Gemini", "gemini-custom"), ("Custom", "local")]
     ai = KnowledgeAI()
-    assert ai.enabled and ai.name.startswith("free:Gemini/gemini-custom")
+    assert ai.enabled and ai.name.startswith("free:Groq/openai/gpt-oss-120b")
 
 
 # ---------------------------------------------------------------------------

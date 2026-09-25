@@ -66,11 +66,93 @@ _SCHEMA = [
         created_at TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS events_lookup ON events (kind, subject, created_at)",
+    # ---- the galaxy ecosystem (see social.py) ----
+    # One row per pair of users with a status; always stored with a < b.
+    """CREATE TABLE IF NOT EXISTS relations (
+        a INTEGER NOT NULL,
+        b INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        since TEXT NOT NULL,
+        PRIMARY KEY (a, b)
+    )""",
+    """CREATE TABLE IF NOT EXISTS requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user INTEGER NOT NULL,
+        to_user INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        family_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS requests_to ON requests (to_user, status)",
+    """CREATE TABLE IF NOT EXISTS blocks (
+        blocker INTEGER NOT NULL,
+        blocked INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (blocker, blocked)
+    )""",
+    # Pairs cut apart forever by the black hole (a < b), with who was swallowed
+    # and whether each side has watched it happen yet.
+    """CREATE TABLE IF NOT EXISTS severed (
+        a INTEGER NOT NULL,
+        b INTEGER NOT NULL,
+        swallowed INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        a_seen INTEGER NOT NULL DEFAULT 0,
+        b_seen INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (a, b)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reporter INTEGER NOT NULL,
+        reported INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS families (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS family_members (
+        family_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        joined_at TEXT NOT NULL,
+        PRIMARY KEY (family_id, user_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user INTEGER NOT NULL,
+        to_user INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS messages_pair ON messages (from_user, to_user, id)",
+    # Each user's current public key (ECDH P-256, JWK). The private half never
+    # leaves their browser.
+    """CREATE TABLE IF NOT EXISTS public_keys (
+        user_id INTEGER PRIMARY KEY,
+        jwk TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    # View-once media: only ciphertext, deleted the moment it's opened (or
+    # after MEDIA_TTL_DAYS unopened). The chat keeps a stub message.
+    """CREATE TABLE IF NOT EXISTS media (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user INTEGER NOT NULL,
+        to_user INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        sender_key TEXT NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
 ]
 
 # Columns added to `entries` after the first release; existing databases are
 # migrated in place with ALTER TABLE.
-_ENTRY_COLUMNS = {"user_id": "INTEGER", "analysis": "TEXT"}
+_ENTRY_COLUMNS = {"user_id": "INTEGER", "analysis": "TEXT", "share_family": "INTEGER NOT NULL DEFAULT 0"}
 
 _migrated: set[str] = set()
 
@@ -173,6 +255,11 @@ class Storage:
             f"SELECT id, analysis FROM entries WHERE {where} AND analysis IS NOT NULL", args
         ).fetchall()
         return {r[0]: json.loads(r[1]) for r in rows}
+
+    def family_shared_ids(self) -> set[int]:
+        where, args = self._owner()
+        return {r[0] for r in self.conn.execute(
+            f"SELECT id FROM entries WHERE {where} AND share_family = 1", args).fetchall()}
 
     def set_analysis(self, entry_id: int, analysis: dict[str, Any]) -> None:
         where, args = self._owner()

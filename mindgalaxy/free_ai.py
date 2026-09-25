@@ -41,10 +41,12 @@ class ProviderError(Exception):
 
 
 # name, API-key env var, base URL, default model, model env var
+# Groq first: it runs on dedicated inference chips and answers in a second or
+# two; Gemini is the backup.
 KNOWN_PROVIDERS = [
+    ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "GROQ_MODEL"),
     ("Gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai",
      "gemini-3.8-flash", "GEMINI_MODEL"),
-    ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "GROQ_MODEL"),
     ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai/gpt-oss-20b:free",
      "OPENROUTER_MODEL"),
     ("NVIDIA", "NVIDIA_API_KEY", "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct",
@@ -113,9 +115,17 @@ class FreeProvider:
             except ProviderError as e:
                 last = e
                 retired = e.status == 404 or (e.status == 400 and "model" in str(e).lower() and "not" in str(e).lower())
-                if e.status == 400 and not retired and "response_format" in body:
-                    body.pop("response_format")  # some models reject JSON mode; the prompt still asks for JSON
-                    continue
+                if e.status == 400 and not retired:
+                    # Drop whichever optional setting the provider objected to:
+                    # not every model takes a reasoning setting or JSON mode.
+                    msg = str(e).lower()
+                    optional = ["reasoning_effort", "response_format"]
+                    if "json" in msg or "response_format" in msg:
+                        optional.reverse()
+                    drop = next((k for k in optional if k in body), None)
+                    if drop:
+                        body.pop(drop)
+                        continue
                 if not (retired or e.status in (429, 500, 502, 503)):
                     raise
                 tried.add(body["model"])
@@ -141,6 +151,8 @@ class FreeProvider:
             "temperature": 0.3,
             "max_tokens": 8000,
             "response_format": {"type": "json_object"},
+            # These are lookups, not puzzles: little "thinking" answers much faster.
+            "reasoning_effort": "low",
         }
         data = self._post_with_fallbacks(body)
         try:

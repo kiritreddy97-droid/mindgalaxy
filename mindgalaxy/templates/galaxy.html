@@ -194,6 +194,18 @@ __THREE_JS_TAG__
   .kn-hospital .w { font-size: 12.5px; color: #e4e6fa; line-height: 1.55; margin-top: 6px; }
   .kn-hospital .src { font-size: 11px; color: var(--muted); margin-top: 6px; }
   .kn-hospital .src a { color: var(--muted); }
+  .kn-near .near-intro { font-size: 12px; color: #c9cdf3; line-height: 1.5; margin-bottom: 8px; }
+  .kn-near .near-btn { font: inherit; font-size: 12.5px; font-weight: 600; color: #0b0e21; background: var(--accent); border: none;
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+  .kn-near .near-item { padding: 9px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid transparent; margin-top: 6px; }
+  .kn-near .near-item.match { border-color: rgba(125,255,176,0.35); }
+  .kn-near .near-item .n { font-size: 13px; font-weight: 600; color: #fff; }
+  .kn-near .near-item .m { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+  .kn-near .near-item .a { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 5px; font-size: 12px; }
+  .kn-near a { color: var(--accent); text-decoration: none; }
+  .kn-near .near-links { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; font-size: 12.5px; }
+  .kn-near .near-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  .kn-video { display: inline-block; margin-top: 8px; font-size: 12.5px; font-weight: 600; color: #ff8a8a; text-decoration: none; }
   .kn-hospital .cta { display: inline-block; margin-top: 9px; font-size: 12.5px; font-weight: 600; color: #0b0e21; background: var(--gold); padding: 6px 12px; border-radius: 8px; text-decoration: none; }
 
   #user-chip { display: none; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
@@ -1416,6 +1428,12 @@ __UNIVERSE_TAG__
           it.steps.forEach(x => ol.appendChild(el("li", null, x)));
           det.appendChild(ol);
         }
+        if (it.ingredients || /recipe/i.test(it.steps_label || "")) {
+          const v = el("a", "kn-video", `▶ Watch how to make ${it.name} on YouTube`);
+          v.href = "https://www.youtube.com/results?search_query=" + encodeURIComponent(it.name + " recipe");
+          v.target = "_blank"; v.rel = "noopener noreferrer";
+          det.appendChild(v);
+        }
         card.appendChild(det);
       }
       return card;
@@ -1748,6 +1766,209 @@ __UNIVERSE_TAG__
       });
     }
 
+
+    // ---------------------------------------------------------------
+    // 📍 Near you: real places around you for health, food and product
+    // thoughts, from OpenStreetMap. Location is asked for only when you
+    // tap the button (or already allowed); it goes straight from your
+    // browser to OpenStreetMap, rounded to about 100 m, and never reaches
+    // our server. OpenStreetMap has no ratings, so each list also links
+    // to a map search where reviews can be compared.
+    // ---------------------------------------------------------------
+    const NEAR_KIND = { symptom: "health", disease: "health", hospital: "health", food: "food", drink: "food",
+      ingredient: "food", product: "shop", technology: "shop", vehicle: "vehicle" };
+    const SPECIALTIES = [
+      [/eye|vision|sight|blur|cataract|glaucoma|retina|spectacle/, "ophthalmology", "eye hospital", /eye|netra|vision|ophthal|optic|lasik|lens/],
+      [/heart|chest pain|cardiac|blood pressure|angina|palpitation/, "cardiology", "cardiologist", /heart|cardi/],
+      [/skin|rash|acne|eczema|hair ?loss|itch/, "dermatology", "dermatologist", /skin|derma|hair/],
+      [/tooth|teeth|gum|dental|jaw/, "dentist", "dentist", /dent|tooth|teeth|smile/],
+      [/bone|joint|knee|back pain|fracture|spine|shoulder|sprain/, "orthopaedics", "orthopedic doctor", /ortho|bone|joint|spine/],
+      [/\bear\b|nose|throat|sinus|tonsil|hearing/, "otolaryngology", "ENT specialist", /\bent\b|ear|nose|throat/],
+      [/child|baby|infant|toddler/, "paediatrics", "pediatrician", /child|paed|pediat|kids|baby/],
+      [/pregnan|period|menstru|gyn|pcos/, "gynaecology", "gynecologist", /gyn|women|maternity|mother/],
+      [/anxiety|depress|stress|panic|mental|insomnia|sleep/, "psychiatry", "psychiatrist", /mind|psych|mental|wellness/],
+      [/stomach|gut|acid|liver|digest|ulcer/, "gastroenterology", "gastroenterologist", /gastro|liver|digest/],
+      [/kidney|urine|urinary/, "urology", "urologist", /kidney|nephro|uro/],
+      [/diabet|sugar|thyroid|hormone/, "endocrinology", "endocrinologist", /diabet|endocr|thyroid/],
+    ];
+    // dishes -> the cuisines that usually serve them (OpenStreetMap tags cuisine, not dishes)
+    const CUISINES = [
+      [/noodle|ramen|momo|manchurian|fried rice|chow|dumpling|hakka|schezwan|szechuan/, ["chinese", "asian", "japanese", "thai", "korean", "tibetan", "noodle"]],
+      [/sushi|ramen|udon|tempura|teriyaki/, ["japanese", "sushi", "ramen"]],
+      [/biryani|curry|tikka|paneer|naan|kebab|dal|tandoori|haleem/, ["indian", "north_indian", "biryani", "hyderabadi", "mughlai", "kebab"]],
+      [/dosa|idli|vada|sambar|uttapam|upma/, ["south_indian", "indian", "vegetarian"]],
+      [/pizza|pasta|lasagna|risotto/, ["pizza", "italian"]],
+      [/burger|fries|hot ?dog/, ["burger", "american", "fast_food"]],
+      [/taco|burrito|nacho|quesadilla/, ["mexican", "tex-mex"]],
+      [/pad thai|green curry|tom yum/, ["thai"]],
+      [/coffee|latte|cappuccino|espresso/, ["coffee_shop", "coffee", "cafe"]],
+      [/ice ?cream|gelato|sundae/, ["ice_cream", "dessert"]],
+      [/cake|pastry|bread|croissant|donut/, ["bakery", "cake", "dessert"]],
+      [/shawarma|falafel|hummus/, ["arab", "lebanese", "middle_eastern", "shawarma"]],
+    ];
+    const nearCache = {};
+    let myPlace = null;   // this visit only; never saved
+
+    function nearAbout(star) {
+      const a = star.analysis;
+      const kind = a && NEAR_KIND[a.category];
+      if (!kind) return null;
+      const subject = (a.subject || star.text).trim();
+      const hay = (subject + " " + star.text).toLowerCase();
+      const spec = kind === "health" ? SPECIALTIES.find(([re]) => re.test(hay)) : null;
+      return { kind, subject, spec };
+    }
+    function kmBetween(a, b, c, d) {
+      const r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2;
+      return 12742 * Math.asin(Math.sqrt(x));
+    }
+    function locate() {
+      if (myPlace) return Promise.resolve(myPlace);
+      if (!navigator.geolocation) return Promise.reject(new Error("unsupported"));
+      return new Promise((res, rej) => navigator.geolocation.getCurrentPosition(p => {
+        myPlace = { lat: Math.round(p.coords.latitude * 1000) / 1000, lon: Math.round(p.coords.longitude * 1000) / 1000 };
+        res(myPlace);
+      }, e => rej(new Error(e.code === 1 ? "denied" : "unavailable")), { timeout: 15000, maximumAge: 600000 }));
+    }
+    async function overpass(q) {
+      const hosts = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass-api.de/api/interpreter"];
+      for (const [n, h] of hosts.entries()) {
+        if (n === 3) await new Promise(r => setTimeout(r, 3000));   // busy everywhere: wait a moment, then one last try
+        try {
+          const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 14000);
+          const r = await fetch(h, { method: "POST", body: "data=" + encodeURIComponent(q), signal: ctl.signal,
+            headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+          clearTimeout(tm);
+          if (r.ok) return (await r.json()).elements || [];
+        } catch (e) { /* try the next mirror */ }
+      }
+      throw new Error("OpenStreetMap is busy right now — try again in a minute.");
+    }
+    async function findNearby(about, at) {
+      const key = about.kind + ":" + about.subject + ":" + at.lat + "," + at.lon;
+      if (nearCache[key]) return nearCache[key];
+      const A = r => `(around:${r},${at.lat},${at.lon})`;
+      const sel = {
+        health: [`nwr["amenity"~"^(hospital|clinic|doctors|dentist)$"]${A(8000)}`, `nwr["healthcare"~"^(hospital|clinic|doctor|centre|optometrist|dentist|specialist)$"]${A(8000)}`,
+                 ...(about.spec && about.spec[1] === "ophthalmology" ? [`nwr["shop"="optician"]${A(8000)}`] : [])],
+        food: [`nwr["amenity"~"^(restaurant|cafe|fast_food|food_court|ice_cream|bar)$"]${A(6000)}`],
+        shop: [`nwr["shop"~"^(electronics|computer|mobile_phone|hifi|appliance|department_store|mall|video_games|camera)$"]${A(12000)}`],
+        vehicle: [`nwr["shop"~"^(car|motorcycle|bicycle|car_parts)$"]${A(20000)}`],
+      }[about.kind];
+      const els = await overpass(`[out:json][timeout:12];(${sel.join(";")};);out center tags 300;`);
+      const words = about.subject.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 &&
+        !["the", "and", "with", "food", "dish", "pain", "loss", "general", "common"].includes(w));
+      const cuisines = about.kind === "food" ? CUISINES.filter(([re]) => re.test(about.subject.toLowerCase())).flatMap(([, c]) => c) : [];
+      const forKids = about.spec && about.spec[1] === "paediatrics";
+      const seen = new Set();
+      const places = els.map(e => {
+        const t = e.tags || {}, lat = e.lat || (e.center && e.center.lat), lon = e.lon || (e.center && e.center.lon);
+        if (!lat || !t.name) return null;
+        const text = [t.name, t.cuisine, t.brand, t["healthcare:speciality"], t.description, t.shop, t.amenity].filter(Boolean).join(" ").toLowerCase();
+        let match = false;
+        if (about.kind === "health") match = !!about.spec && (about.spec[3].test(text) || (t["healthcare:speciality"] || "").includes(about.spec[1]));
+        else match = words.some(w => text.includes(w)) || cuisines.some(c => (t.cuisine || "").toLowerCase().split(";").includes(c));
+        // an adult's problem shouldn't send them to a children's hospital first
+        const kids = about.kind === "health" && !forKids && /child|kids|paediat|pediat/.test((t.name || "").toLowerCase());
+        if (about.kind === "health" && about.spec && about.spec[1] === "dentist") match = match || t.amenity === "dentist";
+        const kind = (t["healthcare:speciality"] || t.cuisine || t.shop || t.amenity || t.healthcare || "").split(";");
+        return { name: t.name, lat, lon, km: kmBetween(at.lat, at.lon, lat, lon), match, kids,
+          type: kind.slice(0, 3).join(", ").replace(/_/g, " ") + (kind.length > 3 ? ` +${kind.length - 3} more` : ""),
+          street: [t["addr:housenumber"], t["addr:street"], t["addr:suburb"] || t["addr:city"]].filter(Boolean).join(", "),
+          phone: t.phone || t["contact:phone"] || "", site: t.website || t["contact:website"] || "",
+          hours: t.opening_hours || "", emergency: t.emergency === "yes" };
+      }).filter(p => p && !seen.has(p.name + p.street) && seen.add(p.name + p.street));
+      places.sort((a, b) => (b.match - a.match) || (a.kids - b.kids) || (a.km - b.km));
+      return (nearCache[key] = places.slice(0, 8));
+    }
+    function nearLinks(about, sec) {
+      const box = el("div", "near-links");
+      const link = (text, url) => { const a = el("a", null, text); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; box.appendChild(a); };
+      const maps = q => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+      if (about.kind === "health") {
+        const who = about.spec ? about.spec[2] : "doctor";
+        link(`⭐ Top-rated ${who}s near me (Google Maps reviews) →`, maps(`best ${who} near me`));
+        link("🏥 Hospitals near me →", maps("hospital near me"));
+      } else if (about.kind === "food") {
+        link(`⭐ Best places for ${about.subject} near me →`, maps(`${about.subject} near me`));
+        link(`▶ Watch ${about.subject} recipe videos on YouTube →`, "https://www.youtube.com/results?search_query=" + encodeURIComponent(about.subject + " recipe"));
+      } else {
+        link(`🛒 Compare prices & availability for ${about.subject} →`, "https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(about.subject));
+        link(`🏬 Stores near me that sell ${about.subject} →`, maps(`${about.subject} store near me`));
+        link(`▶ ${about.subject} reviews on YouTube →`, "https://www.youtube.com/results?search_query=" + encodeURIComponent(about.subject + " review"));
+      }
+      sec.appendChild(box);
+    }
+    function renderPlaces(about, places, list) {
+      list.innerHTML = "";
+      if (!places.length) { list.appendChild(el("div", "near-intro", "No places found close by on OpenStreetMap — try the map search below.")); return; }
+      if (!places.some(p => p.match) && about.kind !== "health") {
+        list.appendChild(el("div", "near-intro", `Nothing nearby is tagged with “${about.subject}” — here are the nearest ${about.kind === "food" ? "places to eat" : "stores"}.`));
+      }
+      places.forEach(p => {
+        const it = el("div", "near-item" + (p.match ? " match" : ""));
+        it.appendChild(el("div", "n", (p.match ? "✓ " : "") + p.name + (p.emergency ? " · 🚑 24h emergency" : "")));
+        it.appendChild(el("div", "m", [p.km < 1 ? Math.round(p.km * 1000) + " m" : p.km.toFixed(1) + " km", p.type, p.street].filter(Boolean).join(" · ")));
+        if (p.hours) it.appendChild(el("div", "m", "🕒 " + p.hours));
+        const acts = el("div", "a");
+        const go = el("a", null, "Directions →");
+        go.href = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`; go.target = "_blank"; go.rel = "noopener noreferrer";
+        acts.appendChild(go);
+        if (p.phone) { const ph = p.phone.split(/[;,]/)[0].trim(); const c = el("a", null, "📞 " + ph); c.href = "tel:" + ph.replace(/[^+\d]/g, ""); acts.appendChild(c); }
+        if (/^https?:\/\//i.test(p.site)) { const w = el("a", null, "Website"); w.href = p.site; w.target = "_blank"; w.rel = "noopener noreferrer"; acts.appendChild(w); }
+        it.appendChild(acts);
+        list.appendChild(it);
+      });
+    }
+    async function renderNearby(star, i) {
+      const about = nearAbout(star);
+      if (!about || MODE !== "server") return;
+      const sec = el("div", "kn-section kn-near");
+      const head = el("div", "kn-heading", "📍 Near you");
+      sec.appendChild(head);
+      const what = about.kind === "health" ? (about.spec ? `${about.spec[2]}s, hospitals and clinics` : "doctors, hospitals and clinics")
+        : about.kind === "food" ? `places that serve ${about.subject}` : about.kind === "vehicle" ? "dealers and showrooms" : `stores that may stock ${about.subject}`;
+      const list = el("div");
+      sec.appendChild(list);
+      nearLinks(about, sec);
+      sec.appendChild(el("div", "near-note", "Places from OpenStreetMap. Your location is only used in your browser to search nearby — it isn't saved or sent to Galactic Connections." +
+        (about.kind === "health" ? " In an emergency, call your local emergency number." : "")));
+      document.getElementById("detail-links").prepend(sec);
+      const load = async () => {
+        list.innerHTML = "";
+        list.appendChild(el("div", "near-intro", `Searching for ${what} near you…`));
+        const spin = el("span", "spinner-sm"); head.appendChild(spin);
+        try {
+          const at = await locate();
+          const places = await findNearby(about, at);
+          if (selected === i) renderPlaces(about, places, list);
+          else list.innerHTML = "";
+        } catch (e) {
+          list.innerHTML = "";
+          if (e.message === "denied") {
+            list.appendChild(el("div", "near-intro", "Location is turned off for this site. To see nearby " + what +
+              ", allow location: tap the 🔒 (or ⓘ) next to the address → Site settings → Location → Allow, then tap below."));
+          } else if (e.message === "unsupported") {
+            list.appendChild(el("div", "near-intro", "This browser can't share a location — use the map search below."));
+          } else {
+            list.appendChild(el("div", "near-intro", e.message === "unavailable" ? "Couldn't get your location — try again." : e.message));
+          }
+          const again = el("button", "near-btn", "📍 Try again"); again.type = "button"; again.addEventListener("click", load);
+          list.appendChild(again);
+        } finally { spin.remove(); }
+      };
+      let state = "prompt";
+      try { state = (await navigator.permissions.query({ name: "geolocation" })).state; } catch (e) { /* older browsers */ }
+      if (selected !== i) return;
+      if (state === "granted" || myPlace) return load();
+      list.appendChild(el("div", "near-intro", state === "denied"
+        ? "Location is turned off for this site. Allow it in your browser's site settings (🔒 next to the address) to see nearby " + what + "."
+        : `Find ${what} near you. Your browser will ask to share your location.`));
+      const b = el("button", "near-btn", "📍 Show places near me"); b.type = "button"; b.addEventListener("click", load);
+      list.appendChild(b);
+    }
+
     function showDetail(star, i) {
       document.getElementById("detail-cluster").textContent = star.cluster_name;
       document.getElementById("detail-date").textContent = parseTime(star.created_at).toLocaleString(undefined, {
@@ -1770,6 +1991,7 @@ __UNIVERSE_TAG__
       }
       renderKnowledge(i);
       renderLinks(i);
+      renderNearby(star, i);
       document.dispatchEvent(new CustomEvent("mindgalaxy:star", { detail: { star, own: true } }));
       detailPanel.scrollTop = 0;
       detailPanel.classList.add("open");

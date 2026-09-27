@@ -108,6 +108,19 @@ def ice_servers() -> list[dict[str, Any]]:
     return servers + got
 
 
+THEME_GROUPS = {"symptom": "health", "disease": "health", "hospital": "health", "feeling": "feelings",
+                "food": "food", "drink": "food", "ingredient": "food", "product": "gadgets", "technology": "gadgets",
+                "vehicle": "vehicles", "place": "places", "activity": "activities"}
+
+
+def theme_hint(analysis: dict[str, Any]) -> str:
+    """What a thought is about, as words the constellation clustering can use."""
+    cat = analysis.get("category") or "other"
+    group = THEME_GROUPS.get(cat, cat)
+    subject = str(analysis.get("subject") or "")[:60]
+    return f"{group} {group} {subject}" if group != "other" else " " + subject
+
+
 def assemble_galaxy(store: Storage, ai_on: bool) -> dict[str, Any]:
     """Compute the galaxy; with AI on, replace loose links with AI-judged ones.
 
@@ -115,11 +128,11 @@ def assemble_galaxy(store: Storage, ai_on: bool) -> dict[str, Any]:
     symptom, disease or hospital star only gets lines that Claude judged to be
     genuinely related (and, for hospitals, that were verified on the web).
     """
-    galaxy = build_galaxy(store.all_entries())
+    analyses = store.analyses() if ai_on else {}
+    galaxy = build_galaxy(store.all_entries(), hints={i: theme_hint(a) for i, a in analyses.items() if a})
     galaxy["ai"] = ai_on
     if not ai_on or not galaxy["stars"]:
         return galaxy
-    analyses = store.analyses()
     shared = store.family_shared_ids()
     index = {s["id"]: i for i, s in enumerate(galaxy["stars"])}
     medical = set()

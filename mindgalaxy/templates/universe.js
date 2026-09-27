@@ -405,6 +405,8 @@
         max-width: min(360px, calc(100vw - 32px)); cursor: pointer; transform: translateY(-16px); opacity: 0; pointer-events: none;
         transition: transform 0.3s ease, opacity 0.3s ease; }
       #notif-pop.open { transform: none; opacity: 1; pointer-events: auto; }
+      .perm-ask { position: fixed; right: 26px; top: 130px; z-index: 70; width: min(360px, calc(100vw - 24px)); padding: 14px; }
+      .perm-ask .soc-row { margin-top: 10px; }
       #friend-counter { position: fixed; right: 26px; bottom: 76px; z-index: 12; display: flex; gap: 12px; padding: 8px 14px;
         font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
       @media (max-width: 720px) {
@@ -873,6 +875,7 @@
       pop.classList.add("open");
       clearTimeout(popTimer);
       popTimer = setTimeout(() => pop.classList.remove("open"), 5500);
+      if (["message", "call", "request"].includes(n.kind)) askAlertsOnce();
       if (document.hidden && "Notification" in window && Notification.permission === "granted") {
         try {
           const dn = new Notification("Galactic Connections", { body: `${n.icon || ""} ${n.text}`, icon: "/icon-192.png", tag: String(n.kind) + (n.name || "") });
@@ -880,7 +883,23 @@
         } catch (e) { /* not supported here */ }
       }
     }
-    window.GC_notify = notify;   // calls.js and the galaxy page report here too
+    window.GC_notify = notify;
+
+    // The first time something important arrives, offer to turn on alerts
+    // (browsers only allow the question after a tap). Asked at most once a week.
+    function askAlertsOnce() {
+      if (!("Notification" in window) || Notification.permission !== "default") return;
+      const key = "gc-alerts-asked:" + G.owner;
+      try { if (Date.now() - Number(localStorage.getItem(key) || 0) < 7 * 864e5) return; localStorage.setItem(key, String(Date.now())); } catch (e) { return; }
+      const box = el("div", "hud panel perm-ask");
+      box.appendChild(el("div", "np-text", "🔔 Turn on alerts so you never miss a message or call, even when this tab is in the background?"));
+      const row = el("div", "soc-row");
+      row.appendChild(button("Not now", "", () => box.remove()));
+      row.appendChild(button("Turn on", "primary", async () => { try { await Notification.requestPermission(); } catch (e) { /* ignored */ } box.remove(); }));
+      box.appendChild(row);
+      document.body.appendChild(box);
+      setTimeout(() => box.remove(), 20000);
+    }   // calls.js and the galaxy page report here too
 
     function collectNotifications(u) {
       const first = !seen;
@@ -923,6 +942,9 @@
           renderNotes();
         });
         p.appendChild(ask);
+      } else if ("Notification" in window && Notification.permission === "denied") {
+        p.appendChild(el("div", "soc-note", "🔕 Alerts are turned off for this site, so you'll only see messages and calls while it's open. " +
+          "To turn them on: tap the 🔒 (or ⓘ) next to the address → Site settings → Notifications → Allow."));
       }
       if (!notes.length) p.appendChild(el("div", "soc-note", "Nothing yet. Messages, requests, calls and cosmic events show up here."));
       notes.forEach(n => {

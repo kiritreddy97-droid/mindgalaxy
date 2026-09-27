@@ -197,10 +197,17 @@ def build_galaxy(
     entries: list[Entry],
     now: Optional[_dt.datetime] = None,
     half_life_days: float = 45.0,
+    hints: Optional[dict[int, str]] = None,
 ) -> dict[str, Any]:
     """
     Run the full MindGalaxy pipeline over a list of Entry objects and return
     a JSON-serializable dict: `{stars, edges, clusters, generated_at, count}`.
+
+    `hints` optionally maps an entry id to what the thought is *about* (e.g.
+    "health eyes" or "food chicken curry", from the AI's analysis). Hints
+    steer where stars sit and which constellation they join -- so "I wish my
+    vision recovers" lands with other health thoughts, not with curry -- but
+    never create lines: those still need the words themselves to overlap.
     """
     now = now or _dt.datetime.utcnow()
     n = len(entries)
@@ -233,6 +240,9 @@ def build_galaxy(
     # fragment what should be single themes into many tiny ones.
     vectorizer, tfidf = _fit_tfidf(texts)
     dense = tfidf.toarray()
+    hints = hints or {}
+    hinted = [f"{e.text} {hints.get(e.id, '')}" for e in entries]
+    theme = _fit_tfidf(hinted)[1].toarray() if any(hints.get(e.id) for e in entries) else dense
 
     # TruncatedSVD needs at least 2 features; pad a *copy* with an inert
     # zero column on the rare inputs whose vocabulary collapses to just one
@@ -240,8 +250,8 @@ def build_galaxy(
     # unpadded `dense`, since its columns must stay aligned with
     # `vectorizer`'s vocabulary (the padded column doesn't correspond to
     # any real term).
-    svd_input = dense if dense.shape[1] >= 2 else np.hstack(
-        [dense, np.zeros((dense.shape[0], 2 - dense.shape[1]))]
+    svd_input = theme if theme.shape[1] >= 2 else np.hstack(
+        [theme, np.zeros((theme.shape[0], 2 - theme.shape[1]))]
     )
 
     # --- position: project semantic space down to 3D -----------------
@@ -256,10 +266,13 @@ def build_galaxy(
 
     # --- theme: cluster into constellations ---------------------------
     if n >= 6:
-        k = max(1, min(_choose_k(dense), n - 1))
-        labels = KMeans(n_clusters=k, n_init=10, random_state=42).fit(dense).labels_ if k > 1 else np.zeros(n, dtype=int)
+        k = max(1, min(_choose_k(theme), n - 1))
+        labels = KMeans(n_clusters=k, n_init=10, random_state=42).fit(theme).labels_ if k > 1 else np.zeros(n, dtype=int)
     else:
-        labels = np.zeros(n, dtype=int)
+        # too few thoughts to cluster statistically: group them by what
+        # they're about (the first hint word), so health doesn't sit with food
+        groups: dict[str, int] = {}
+        labels = np.array([groups.setdefault((hints.get(e.id) or "").split(" ")[0], len(groups)) for e in entries])
 
     cluster_names = _cluster_names(vectorizer, dense, labels)
     cluster_status = _cluster_status(entries, labels, now)

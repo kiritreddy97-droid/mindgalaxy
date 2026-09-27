@@ -162,6 +162,15 @@ _SCHEMA = [
         peer_id TEXT,
         PRIMARY KEY (room_id, user_id)
     )""",
+    # Every device a user signs in on has its own key pair; media is
+    # encrypted for each of the recipient's devices.
+    """CREATE TABLE IF NOT EXISTS device_keys (
+        user_id INTEGER NOT NULL,
+        device_id TEXT NOT NULL,
+        jwk TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, device_id)
+    )""",
     # View-once media: only ciphertext, deleted the moment it's opened (or
     # after MEDIA_TTL_DAYS unopened). The chat keeps a stub message.
     """CREATE TABLE IF NOT EXISTS media (
@@ -185,6 +194,8 @@ _LATER_COLUMNS = {
     "users": {"tour_done": "INTEGER NOT NULL DEFAULT 0"},
     "family_members": {"role": "TEXT NOT NULL DEFAULT 'other'"},
     "requests": {"family2_id": "INTEGER"},
+    # a media message points at its (view-once) media row
+    "messages": {"media_id": "INTEGER", "media_kind": "TEXT"},
 }
 
 _migrated: set[str] = set()
@@ -241,6 +252,20 @@ class Storage:
             for col, typ in cols.items():
                 if col not in have:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+        # Media messages used to be a text marker starting with a NUL
+        # character, which Turso cuts off, leaving empty messages. Re-link
+        # each to the photo sent in the same few seconds.
+        blank = self.conn.execute("SELECT id, from_user, to_user, created_at FROM messages "
+                                  "WHERE text = '' AND media_id IS NULL").fetchall()
+        for mid, frm, to, at in blank:
+            best = None
+            for media_id, kind, m_at in self.conn.execute(
+                    "SELECT id, kind, created_at FROM media WHERE from_user = ? AND to_user = ?", (frm, to)).fetchall():
+                gap = abs((_dt.datetime.fromisoformat(m_at) - _dt.datetime.fromisoformat(at)).total_seconds())
+                if gap < 10 and (best is None or gap < best[0]):
+                    best = (gap, media_id, kind)
+            if best:
+                self.conn.execute("UPDATE messages SET media_id = ?, media_kind = ? WHERE id = ?", (best[1], best[2], mid))
         self.conn.execute("CREATE INDEX IF NOT EXISTS entries_user ON entries (user_id)")
         self.conn.commit()
 

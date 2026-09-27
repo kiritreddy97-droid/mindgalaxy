@@ -122,6 +122,30 @@ def test_chat_limits(app):
     assert a.post("/api/chat/bob", json={"text": "   "}).status_code == 400
 
 
+def test_media_messages_survive_a_database_that_cuts_text_at_nul(app):
+    """Turso truncates text at NUL; media messages must not depend on text."""
+    a, b = user(app, "alice"), user(app, "bob")
+    make(app, a, b, "friend")
+    mid = send_media(a, "bob").get_json()["id"]
+    with Storage(app.config["DB_PATH"]) as s:
+        text = s.conn.execute("SELECT text, media_id FROM messages WHERE media_id = ?", (mid,)).fetchone()
+    assert text == ("", mid)
+    assert b.get("/api/chat/alice").get_json()["messages"][-1]["media"]["id"] == mid
+
+
+def test_old_blank_media_messages_are_relinked(app, tmp_path):
+    a, b = user(app, "alice"), user(app, "bob")
+    make(app, a, b, "friend")
+    mid = send_media(a, "bob").get_json()["id"]
+    with Storage(app.config["DB_PATH"]) as s:  # what Turso left behind
+        s.conn.execute("UPDATE messages SET media_id = NULL, media_kind = NULL, text = '' WHERE media_id = ?", (mid,))
+        s.conn.commit()
+    with Storage(app.config["DB_PATH"]) as s:  # the next start-up repairs it
+        pass
+    msg = b.get("/api/chat/alice").get_json()["messages"][-1]
+    assert msg["media"] == {"id": mid, "kind": "image", "waiting": True}
+
+
 def test_typed_media_marker_cannot_be_forged(app):
     a, b = user(app, "alice"), user(app, "bob")
     make(app, a, b, "friend")
@@ -130,14 +154,18 @@ def test_typed_media_marker_cannot_be_forged(app):
     assert "media" not in msg and msg["text"] == "media:1:image"
 
 
-def test_enemies_need_both_to_agree_and_cannot_chat(app):
+def test_enemies_need_both_to_agree_and_can_only_text(app):
     a, b = user(app, "alice"), user(app, "bob")
     make(app, a, b, "friend")
     request(a, "bob", "enemy")
     assert status_of(a, "bob") == "friend"  # not until bob accepts
     accept_all(b)
     assert status_of(a, "bob") == "enemy"
-    assert a.post("/api/chat/bob", json={"text": "hi"}).status_code == 403
+    # enemies can argue it out in words, but can't send media or call
+    assert a.post("/api/chat/bob", json={"text": "hi"}).status_code == 201
+    assert b.get("/api/chat/alice").get_json()["messages"][-1]["text"] == "hi"
+    assert a.get("/api/keys/bob").status_code == 403
+    assert a.post("/api/calls", json={"usernames": ["bob"], "kind": "audio"}).status_code == 403
 
 
 def test_make_peace(app):

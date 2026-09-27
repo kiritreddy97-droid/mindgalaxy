@@ -27,6 +27,8 @@ Statuses between two users (both must accept every change):
 from __future__ import annotations
 
 import datetime as _dt
+import json
+import re
 from typing import Any, Optional
 
 from .storage import Storage
@@ -335,6 +337,13 @@ class Social:
         return (self.status(me, other) in CHAT_STATUSES or self.share_family(me, other)
                 or self.families_linked(me, other))
 
+    def can_text(self, me: int, other: int) -> bool:
+        """Text chat: everyone who can chat, plus enemies (words only -- no
+        photos or calls between enemies)."""
+        if me == other or self.blocked_between(me, other) or self.severed(me, other):
+            return False
+        return self.can_chat(me, other) or self.status(me, other) == "enemy"
+
     # -- family roles and family-to-family links ------------------------
     def role(self, uid: int, family_id: Optional[int]) -> Optional[str]:
         row = self._one("SELECT role FROM family_members WHERE family_id = ? AND user_id = ?", (family_id, uid))
@@ -385,8 +394,8 @@ class Social:
             raise SocialError("Write something first.")
         if len(text) > MAX_MESSAGE_CHARS:
             raise SocialError(f"Messages can be at most {MAX_MESSAGE_CHARS} characters.")
-        if not self.can_chat(me, other):
-            raise SocialError("You can only chat with friends, your partner and family.", 403)
+        if not self.can_text(me, other):
+            raise SocialError("You can only chat with friends, partners, family and enemies.", 403)
         since = (_dt.datetime.utcnow() - _dt.timedelta(hours=1)).isoformat()
         if int(self._one("SELECT COUNT(*) FROM messages WHERE from_user = ? AND created_at >= ?", (me, since))[0]) \
                 >= MESSAGES_PER_HOUR:
@@ -398,19 +407,24 @@ class Social:
 
     def messages(self, me: int, other_name: str, after: int = 0, limit: int = 200) -> list[dict[str, Any]]:
         other = self.user_id(other_name)
-        if not self.can_chat(me, other):
-            raise SocialError("You can only chat with friends, your partner and family.", 403)
+        if not self.can_text(me, other):
+            raise SocialError("You can only chat with friends, partners, family and enemies.", 403)
         rows = self._all(
-            "SELECT id, from_user, text, created_at FROM messages WHERE id > ? AND "
+            "SELECT id, from_user, text, created_at, media_id, media_kind FROM messages WHERE id > ? AND "
             "((from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)) ORDER BY id DESC LIMIT ?",
             (after, me, other, other, me, limit))
         out = []
         for r in reversed(rows):
-            msg = {"id": r[0], "mine": r[1] == me, "text": r[2], "at": r[3]}
-            if r[2].startswith("\x00media:"):
-                _, media_id, kind = r[2][1:].split(":")
+            msg = {"id": r[0], "mine": r[1] == me, "text": r[2] or "", "at": r[3]}
+            if r[4]:
+                msg["text"] = ""
+                msg["media"] = {"id": int(r[4]), "kind": r[5] or "image"}
+            elif msg["text"].startswith("\x00media:"):  # old marker, where the database kept it intact
+                _, media_id, kind = msg["text"][1:].split(":")
                 msg["text"] = ""
                 msg["media"] = {"id": int(media_id), "kind": kind}
+            elif not msg["text"]:
+                continue  # an old media message whose photo has already gone
             out.append(msg)
         waiting = Media(self).status([m["media"]["id"] for m in out if "media" in m])
         for m in out:
@@ -507,6 +521,7 @@ class Social:
                     for uid in ids]
         for uid, g in zip(ids, galaxies):
             g["online"] = uid in online
+            g["can_text"] = g["can_chat"] or rel.get(uid) == "enemy"
         reqs_in = [{"id": r[0], "from": r[1], "kind": r[2], "family_id": r[3], "at": r[4], "family_name": r[5],
                     "family2_id": r[7], "family2_name": r[8]}
                    for r in self._all(
@@ -526,9 +541,23 @@ class Social:
         for g in galaxies:
             if g["username"] in linked_names:
                 g["can_chat"] = True
-            if not g["can_chat"]:
-                g["online"] = False  # only people you can reach see whether you're online
-        return {"me": self.username(me), "roles": ROLES, "elders": sorted(ELDERS), "galaxies": galaxies, "requests_in": reqs_in, "requests_out": reqs_out,
+            if not g.get("can_text", g["can_chat"]):
+                g["online"] = False  # only people you're connected with see whether you're online
+        # the latest messages to me, for notifications (senders I can still reach)
+        inbox = []
+        for mid, frm, uname, text, at, media_kind in self._all(
+                "SELECT m.id, m.from_user, u.username, m.text, m.created_at, m.media_kind FROM messages m "
+                "JOIN users u ON u.id = m.from_user WHERE m.to_user = ? ORDER BY m.id DESC LIMIT 30", (me,)):
+            if frm in hidden:
+                continue
+            text = text or ""
+            if media_kind or text.startswith("\x00media:"):
+                kind = media_kind or text.rsplit(":", 1)[-1]
+                text = {"image": "📷 Photo", "audio": "🎵 Audio", "video": "🎬 Video"}.get(kind, "📎 Media")
+            if not text:
+                continue
+            inbox.append({"id": mid, "from": uname, "preview": text[:90], "at": at})
+        return {"me": self.username(me), "roles": ROLES, "inbox": inbox, "elders": sorted(ELDERS), "galaxies": galaxies, "requests_in": reqs_in, "requests_out": reqs_out,
                 "families": list(fams.values()), "swallows": self.unseen_swallows(me), "blocked": blocked_names}
 
     def _family_name(self, family_id: Optional[int]) -> Optional[str]:
@@ -573,10 +602,6 @@ MEDIA_TTL_DAYS = 7
 MEDIA_PER_HOUR = 30
 
 
-def _media_marker(media_id: int, kind: str) -> str:
-    return f"\x00media:{media_id}:{kind}"
-
-
 class Media:
     """Media is encrypted in the sender's browser to the recipient's public
     key; the server only ever holds ciphertext, hands it to the recipient
@@ -586,11 +611,13 @@ class Media:
         self.s = social
         self.db = social.db
 
-    def set_key(self, me: int, jwk: str) -> None:
+    MAX_DEVICES = 6
+    DEVICE_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+    @staticmethod
+    def _check_public_jwk(jwk: str) -> str:
         jwk = (jwk or "").strip()
         try:
-            import json
-
             parsed = json.loads(jwk)
         except ValueError:
             raise SocialError("That isn't a public key.")
@@ -598,15 +625,32 @@ class Media:
             raise SocialError("Only a public P-256 key can be registered.")  # never accept a private key
         if len(jwk) > 1000:
             raise SocialError("That key is too large.")
-        self.db.execute("INSERT OR REPLACE INTO public_keys (user_id, jwk, updated_at) VALUES (?, ?, ?)", (me, jwk, _now()))
+        return jwk
+
+    def set_key(self, me: int, jwk: str, device_id: Optional[str] = None) -> None:
+        """Register this device's public key (each user keeps up to MAX_DEVICES)."""
+        jwk = self._check_public_jwk(jwk)
+        device_id = device_id or "legacy"
+        if device_id != "legacy" and not self.DEVICE_RE.match(device_id):
+            raise SocialError("That isn't a valid device id.")
+        self.db.execute("INSERT OR REPLACE INTO device_keys (user_id, device_id, jwk, updated_at) VALUES (?, ?, ?, ?)",
+                        (me, device_id, jwk, _now()))
+        keep = [r[0] for r in self.s._all("SELECT device_id FROM device_keys WHERE user_id = ? "
+                                          "ORDER BY updated_at DESC LIMIT ?", (me, self.MAX_DEVICES))]
+        marks = ",".join("?" * len(keep))
+        self.db.execute(f"DELETE FROM device_keys WHERE user_id = ? AND device_id NOT IN ({marks})", (me, *keep))
         self.db.commit()
 
-    def get_key(self, me: int, username: str) -> Optional[str]:
+    def get_keys(self, me: int, username: str) -> list[dict[str, str]]:
         other = self.s.user_id(username)
         if not self.s.can_chat(me, other):
             raise SocialError("You can only send media to friends, your partner and family.", 403)
-        row = self.s._one("SELECT jwk FROM public_keys WHERE user_id = ?", (other,))
-        return row[0] if row else None
+        return [{"device_id": r[0], "jwk": r[1]} for r in self.s._all(
+            "SELECT device_id, jwk FROM device_keys WHERE user_id = ? ORDER BY updated_at DESC", (other,))]
+
+    def get_key(self, me: int, username: str) -> Optional[str]:
+        keys = self.get_keys(me, username)
+        return keys[0]["jwk"] if keys else None
 
     def _cleanup(self) -> None:
         cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=MEDIA_TTL_DAYS)).isoformat()
@@ -623,8 +667,17 @@ class Media:
             raise SocialError("The file is empty.")
         if len(data) > MAX_MEDIA_BYTES:
             raise SocialError("Media can be at most 4 MB.", 413)
-        if not iv or len(iv) > 64 or not sender_key or len(sender_key) > 1000:
+        if not iv or len(iv) > 64 or not sender_key or len(sender_key) > 16000:
             raise SocialError("Missing encryption details.")
+        try:
+            env = json.loads(sender_key)
+        except ValueError:
+            raise SocialError("Missing encryption details.")
+        if isinstance(env, dict) and env.get("v") == 2:
+            # one wrapped content key per recipient device
+            keys = env.get("keys")
+            if not isinstance(keys, dict) or not keys or len(keys) > self.MAX_DEVICES:
+                raise SocialError("Missing encryption details.")
         since = (_dt.datetime.utcnow() - _dt.timedelta(hours=1)).isoformat()
         if int(self.s._one("SELECT COUNT(*) FROM media WHERE from_user = ? AND created_at >= ?", (me, since))[0]) \
                 >= MEDIA_PER_HOUR:
@@ -634,13 +687,15 @@ class Media:
             "INSERT INTO media (from_user, to_user, kind, mime, iv, sender_key, data, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (me, other, kind, mime, iv, sender_key, data, _now()))
         media_id = int(cur.lastrowid)
-        self.db.execute("INSERT INTO messages (from_user, to_user, text, created_at) VALUES (?, ?, ?, ?)",
-                        (me, other, _media_marker(media_id, kind), _now()))
+        self.db.execute("INSERT INTO messages (from_user, to_user, text, created_at, media_id, media_kind) "
+                        "VALUES (?, ?, ?, ?, ?, ?)", (me, other, "", _now(), media_id, kind))
         self.db.commit()
         return media_id
 
-    def open_once(self, me: int, media_id: int) -> dict[str, Any]:
-        """Hand the ciphertext to its recipient exactly once, then delete it."""
+    def open_once(self, me: int, media_id: int, device_id: Optional[str] = None) -> dict[str, Any]:
+        """Hand the ciphertext to its recipient exactly once, then delete it.
+        It's only released to a device it was encrypted for, so opening it on
+        another device can't destroy it unseen."""
         row = self.s._one("SELECT from_user, to_user, kind, mime, iv, sender_key, data FROM media WHERE id = ?",
                           (media_id,))
         if not row or row[1] != me:
@@ -648,9 +703,20 @@ class Media:
         sender = row[0]
         if not self.s.can_chat(me, sender):
             raise SocialError("You can't open media from this galaxy.", 403)
+        sender_key = row[5]
+        try:
+            env = json.loads(sender_key)
+        except ValueError:
+            env = None
+        if isinstance(env, dict) and env.get("v") == 2:
+            wrapped = (env.get("keys") or {}).get(device_id or "")
+            if not wrapped:
+                raise SocialError("This was sent before you used this device, so it can only be opened on the "
+                                  "device you used then. It's still waiting for you there.", 409)
+            sender_key = json.dumps({"v": 2, "sender": env.get("sender"), "wrapped": wrapped})
         self.db.execute("DELETE FROM media WHERE id = ?", (media_id,))
         self.db.commit()
-        return {"kind": row[2], "mime": row[3], "iv": row[4], "sender_key": row[5], "data": bytes(row[6])}
+        return {"kind": row[2], "mime": row[3], "iv": row[4], "sender_key": sender_key, "data": bytes(row[6])}
 
     def status(self, media_ids: list[int]) -> set[int]:
         """Which of these media are still waiting to be opened."""

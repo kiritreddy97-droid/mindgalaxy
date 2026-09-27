@@ -660,13 +660,15 @@ def create_app(
     @app.post("/api/keys")
     @social_route
     def api_set_key(social: Social, me: int):
-        Media(social).set_key(me, str(_body().get("jwk", "")))
+        b = _body()
+        Media(social).set_key(me, str(b.get("jwk", "")), b.get("device_id") and str(b.get("device_id")))
         return jsonify({"ok": True})
 
     @app.get("/api/keys/<username>")
     @social_route
     def api_get_key(social: Social, me: int, username: str):
-        return jsonify({"jwk": Media(social).get_key(me, username)})
+        devices = Media(social).get_keys(me, username)
+        return jsonify({"jwk": devices[0]["jwk"] if devices else None, "devices": devices})
 
     @app.post("/api/chat/<username>/media")
     @social_route
@@ -681,7 +683,7 @@ def create_app(
     @app.post("/api/media/<int:media_id>/open")
     @social_route
     def api_open_media(social: Social, me: int, media_id: int):
-        m = Media(social).open_once(me, media_id)
+        m = Media(social).open_once(me, media_id, _body().get("device_id") and str(_body().get("device_id")))
         resp = app.response_class(m["data"], mimetype="application/octet-stream")
         resp.headers.update({"X-Media-Kind": m["kind"], "X-Media-Mime": m["mime"], "X-Media-IV": m["iv"],
                              "X-Media-Key": m["sender_key"], "Cache-Control": "no-store"})

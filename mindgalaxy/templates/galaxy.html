@@ -2426,6 +2426,7 @@ __UNIVERSE_TAG__
       deselect: () => { if (selected >= 0) deselect(); },
       openHistory: () => toggleHistory(true),
       openBody: key => sky.openBody(key),
+      selectStar: i => selectStar(i),
     };
     document.dispatchEvent(new Event("mindgalaxy:ready"));
 

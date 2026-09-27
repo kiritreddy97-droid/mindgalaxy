@@ -41,6 +41,15 @@
   async function start() {
     GC = window.GC;
     window.gcBusy = () => !!call || !!ringing;  // keeps the idle sign-out away during calls
+    window.gcNudge = async name => {
+      if (!peer || !peer.open) return;
+      try {
+        const { peer_id } = await GC.api("GET", `/api/presence/${encodeURIComponent(name)}`);
+        if (!peer_id) return;
+        const conn = peer.connect(peer_id, { reliable: true });
+        conn.on("open", () => { conn.send({ type: "nudge" }); setTimeout(() => conn.close(), 1500); });
+      } catch (e) { /* they'll see it on their next refresh */ }
+    };
     injectStyles();
     buildUi();
     document.addEventListener("gc:card", e => addCardButtons(e.detail));
@@ -169,6 +178,7 @@
   // ------------------------------------------------------------------
   function handleData(conn) {
     conn.on("data", async msg => {
+      if (msg && msg.type === "nudge") { if (window.gcOnNudge) window.gcOnNudge(); return; }
       if (!msg || msg.type !== "ring" || typeof msg.room !== "string") return;
       if (call || ringing) { conn.send({ type: "decline", reason: "busy" }); return; }
       let room;
@@ -195,35 +205,83 @@
     card.appendChild(row);
     box.appendChild(card);
     box.classList.add("open");
-    ringing = { room, conn, tone: ringTone(), timer: setTimeout(() => { conn.send({ type: "decline" }); stopRinging(); }, RING_SECONDS * 1000) };
+    const missed = () => {
+      if (window.GC_notify) window.GC_notify({ kind: "call", icon: room.kind === "video" ? "🎥" : "📞", name: from,
+        text: `Missed ${room.kind} call from ${from}` });
+    };
+    const me = {};
+    const giveUp = () => { if (ringing !== me) return; stopRinging(); missed(); };
+    ringing = Object.assign(me, {
+      room, conn, tone: ringTone(room.kind, from),
+      timer: setTimeout(() => { conn.send({ type: "decline" }); giveUp(); }, RING_SECONDS * 1000),
+      // if the caller hangs up before we answer, stop ringing
+      watch: setInterval(async () => {
+        try {
+          const r = await GC.api("GET", `/api/calls/${encodeURIComponent(room.id)}`);
+          if (!r.members.some(m => m.joined && !m.me)) giveUp();
+        } catch (e) { giveUp(); }
+      }, 3000),
+    });
   }
 
   function stopRinging() {
     if (!ringing) return;
     clearTimeout(ringing.timer);
+    clearInterval(ringing.watch);
     ringing.tone();
     ringing = null;
     document.getElementById("ring").classList.remove("open");
   }
 
-  function ringTone() {
-    let ctx = null, timer = 0;
-    try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const beep = () => {
-        [0, 0.25].forEach(offset => {
-          const o = ctx.createOscillator(), g = ctx.createGain();
-          o.frequency.value = 660; o.connect(g); g.connect(ctx.destination);
-          g.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
-          g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + offset + 0.02);
-          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.2);
-          o.start(ctx.currentTime + offset); o.stop(ctx.currentTime + offset + 0.22);
-        });
-      };
-      beep(); timer = setInterval(beep, 2000);
-    } catch (e) { /* no audio: the popup still shows */ }
-    if (navigator.vibrate) navigator.vibrate([400, 200, 400]);
-    return () => { clearInterval(timer); if (ctx) ctx.close().catch(() => null); };
+  // The ringtone: the device vibrates and a voice says "You have a Galactic
+  // video call from dragon 97" three times, pauses two seconds, says it twice
+  // more, pauses, and repeats until answered, declined or timed out. (A web
+  // page can't use the phone's own ringtone.) Each phrase starts with a soft
+  // chime, which also plays alone where speech isn't available.
+  function ringTone(kind, from) {
+    let stopped = false, ctx = null;
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ctx = null; }
+    const chime = () => {
+      if (!ctx) return;
+      [[660, 0], [880, 0.18]].forEach(([f, t]) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = f; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.3);
+        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.32);
+      });
+    };
+    const spokenName = from.replace(/[_\-.]+/g, " ");
+    const phrase = `You have a Galactic ${kind} call from ${spokenName}`;
+    const say = () => new Promise(done => {
+      const synth = window.speechSynthesis;
+      if (!synth) return setTimeout(done, 1600);
+      const u = new SpeechSynthesisUtterance(phrase);
+      u.rate = 0.95; u.pitch = 1.05; u.volume = 1;
+      let finished = false;
+      const end = () => { if (!finished) { finished = true; done(); } };
+      u.onend = end; u.onerror = end;
+      synth.speak(u);
+      setTimeout(end, 7000);   // some browsers never fire onend
+    });
+    const pause = ms => new Promise(r => setTimeout(r, ms));
+    (async () => {
+      while (!stopped) {
+        for (const times of [3, 2]) {
+          if (navigator.vibrate) navigator.vibrate([700, 300, 700, 300, 700]);
+          for (let i = 0; i < times && !stopped; i++) { chime(); await pause(350); if (!stopped) await say(); }
+          if (stopped) return;
+          await pause(2000);
+        }
+      }
+    })();
+    return () => {
+      stopped = true;
+      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* nothing to stop */ }
+      if (navigator.vibrate) navigator.vibrate(0);
+      if (ctx) ctx.close().catch(() => null);
+    };
   }
 
   async function answer(room) {

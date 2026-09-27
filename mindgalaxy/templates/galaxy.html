@@ -23,8 +23,27 @@ __THREE_JS_TAG__
     background: radial-gradient(ellipse at 50% 20%, var(--bg-1) 0%, var(--bg-0) 70%);
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     color: var(--text);
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
   }
   #canvas-holder { position: fixed; inset: 0; }
+
+  #sky-panel { position: fixed; left: 26px; bottom: 96px; width: 310px; max-height: 52vh; overflow-y: auto;
+    padding: 14px 16px 12px; z-index: 30; display: none; }
+  #sky-panel.open { display: block; }
+  body.sky-open #legend { display: none; }
+  #sky-panel h3 { margin: 0 26px 2px 0; font-size: 16px; font-weight: 600; }
+  #sky-panel .sky-sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; line-height: 1.45; }
+  #sky-panel .sky-x { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--muted);
+    font-size: 20px; cursor: pointer; line-height: 1; padding: 4px; }
+  #sky-panel .sky-kids { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; }
+  #sky-panel .sky-kids button { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer; }
+  #sky-panel .sky-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  #sky-panel .sky-list button { text-align: left; font: inherit; font-size: 12.5px; line-height: 1.4; padding: 7px 9px;
+    border-radius: 9px; border: 1px solid transparent; background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
+  #sky-panel .sky-list button:hover { border-color: var(--border); }
+  #sky-panel .sky-list .tm { color: var(--muted); font-size: 11px; }
   canvas { display: block; }
 
   .veil {
@@ -287,7 +306,7 @@ __THREE_JS_TAG__
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
   @media (max-width: 720px) {
-    #header .subtitle { display: none; }
+    #header .subtitle, #header .tagline { display: none; }
     #search-box { position: fixed; top: 124px; left: 16px; right: 16px; }
     #stats-line { display: none; }
     #search-box input { width: 100%; }
@@ -302,6 +321,14 @@ __THREE_JS_TAG__
     #detail-panel { top: auto; bottom: 84px; right: 16px; max-height: 46vh; }
     #header { left: 16px; right: 16px; top: 16px; }
     body.panel-open #legend { display: none; }
+    /* bigger, crisper text on phones and small tablets */
+    body { font-size: 15px; }
+    #search-box input, #composer textarea { font-size: 16px; }   /* 16px also stops iOS zooming on focus */
+    #composer button { font-size: 14px; padding: 10px 16px; }
+    .pill-btn { font-size: 13px; }
+    #header h1 { font-size: 20px; }
+    #sky-panel { left: 16px; right: 16px; width: auto; bottom: 84px; max-height: 46vh; }
+    #sky-panel .sky-list button { font-size: 14px; }
   }
 </style>
 </head>
@@ -727,8 +754,14 @@ __UNIVERSE_TAG__
     const holder = document.getElementById("canvas-holder");
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    // Draw at the screen's full native resolution (up to 3x on phones and
+    // retina / 4K+ screens) so everything is pin-sharp; if a device can't keep
+    // up, the render loop steps the resolution down a little until it's smooth.
+    const maxRatio = Math.min(window.devicePixelRatio || 1, 3);
+    let pixelRatio = maxRatio;
+    renderer.setPixelRatio(pixelRatio);
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
     renderer.setSize(window.innerWidth, window.innerHeight);
     holder.appendChild(renderer.domElement);
 
@@ -757,6 +790,21 @@ __UNIVERSE_TAG__
     const clusterVisible = {};
     let dayFilter = null; // "YYYY-MM-DD" in local time, set from the history calendar
     Object.keys(clusters).forEach(c => (clusterVisible[c] = true));
+
+    // This month's thoughts are loose stars. Earlier ones are folded into the
+    // bodies of your sky (see "The sky of your past" below): a finished month
+    // of this year -> a Moon; a finished year -> a Planet (its months are its
+    // moons); a finished decade -> a ringed Titan (a ring for each year).
+    const NOW = new Date(), CUR_YM = dayKey(NOW).slice(0, 7), CUR_Y = NOW.getFullYear(), CUR_DEC = Math.floor(CUR_Y / 10) * 10;
+    const starChain = stars.map(s => {
+      const d = parseTime(s.created_at), ym = dayKey(d).slice(0, 7), y = d.getFullYear(), dec = Math.floor(y / 10) * 10;
+      if (ym >= CUR_YM) return [];
+      if (dec < CUR_DEC) return ["decade:" + dec, "year:" + y];
+      if (y < CUR_Y) return ["year:" + y, "month:" + ym];
+      return ["month:" + ym];
+    });
+    const unfolded = new Set();   // bodies whose thoughts are spread back out into the sky
+    function isFolded(i) { const c = starChain[i]; return c.length > 0 && !c.some(k => unfolded.has(k)); }
 
     stars.forEach((s, i) => {
       const isShooting = s.is_shooting_star;
@@ -815,22 +863,40 @@ __UNIVERSE_TAG__
     // rays to the heart of each constellation of your thoughts ----
     let soul = null;
     const soulTargets = [];
+    function makeCoronaTexture() {
+      const c = document.createElement("canvas");
+      c.width = c.height = 512;
+      const x = c.getContext("2d");
+      x.translate(256, 256);
+      for (let i = 0; i < 72; i++) {
+        x.rotate(Math.PI * 2 / 72);
+        const len = 130 + Math.random() * 110, wid = 3 + Math.random() * 5;
+        const g = x.createLinearGradient(0, 0, len, 0);
+        g.addColorStop(0, "rgba(255,226,160,0.55)"); g.addColorStop(1, "rgba(255,170,80,0)");
+        x.fillStyle = g;
+        x.beginPath(); x.moveTo(0, -wid); x.lineTo(len, 0); x.lineTo(0, wid); x.fill();
+      }
+      return new THREE.CanvasTexture(c);
+    }
     if (OWNER) {
+      // your soul is the Sun of your sky
       const additive = { map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
-      soul = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, color: 0xfff2d0 }));
-      soul.scale.set(14, 14, 1);
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, color: 0xffc46e, opacity: 0.35 }));
-      halo.scale.set(34, 34, 1);
-      soul.userData = { halo };
+      soul = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, color: 0xfff4d6 }));
+      soul.scale.set(18, 18, 1);
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, color: 0xffb04a, opacity: 0.42 }));
+      halo.scale.set(48, 48, 1);
+      const corona = new THREE.Sprite(new THREE.SpriteMaterial({ ...additive, map: makeCoronaTexture(), color: 0xffd08a, opacity: 0.45 }));
+      corona.scale.set(70, 70, 1);
+      soul.userData = { halo, corona };
       soulTargets.push(soul);
-      scene.add(halo, soul);
-      const nameLabel = makeLabel("✦ " + OWNER, "#ffd27a", true);
+      scene.add(corona, halo, soul);
+      const nameLabel = makeLabel("☀ " + OWNER, "#ffd27a", true);
       nameLabel.scale.multiplyScalar(2.2); // the head of the galaxy reads from across it
       nameLabel.position.set(0, 14, 0);
       scene.add(nameLabel);
       soulTargets.unshift(nameLabel); // the name is drawn on top, so it's the surest target
       const centres = {};
-      stars.forEach(s => {
+      stars.filter((s, i) => !starChain[i].length).forEach(s => {
         const c = centres[s.cluster] || (centres[s.cluster] = { v: new THREE.Vector3(), n: 0 });
         c.v.add(new THREE.Vector3(s.x, s.y, s.z)); c.n++;
       });
@@ -971,7 +1037,9 @@ __UNIVERSE_TAG__
       ctx.font = font;
       const w = Math.ceil(ctx.measureText(text).width + fontPx * 1.5);
       const h = Math.ceil(fontPx * 1.9);
-      cnv.width = w; cnv.height = h;
+      const q = Math.min(4, Math.max(2, (window.devicePixelRatio || 1) * 1.5));   // supersample for sharp text
+      cnv.width = Math.ceil(w * q); cnv.height = Math.ceil(h * q);
+      ctx.scale(q, q);
       const r = h / 2;
       ctx.beginPath();
       ctx.moveTo(r, 1); ctx.lineTo(w - r, 1); ctx.arc(w - r, r, r - 1, -Math.PI / 2, Math.PI / 2);
@@ -982,10 +1050,12 @@ __UNIVERSE_TAG__
       ctx.fillStyle = big ? "#ffffff" : "#dfe3ff";
       ctx.fillText(text, fontPx * 0.75, h / 2 + 1);
       const tex = new THREE.CanvasTexture(cnv);
-      tex.minFilter = THREE.LinearFilter;
+      tex.minFilter = renderer.capabilities.isWebGL2 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+      tex.generateMipmaps = renderer.capabilities.isWebGL2;
+      tex.anisotropy = maxAniso;
       const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
       const sp = new THREE.Sprite(mat);
-      const k = (big ? 0.042 : 0.034) * (window.innerWidth <= 720 ? 0.62 : 1);
+      const k = (big ? 0.042 : 0.034) * (window.innerWidth <= 720 ? 0.8 : 1);
       sp.scale.set(w * k, h * k, 1);
       sp.renderOrder = 10;
       return sp;
@@ -1160,6 +1230,7 @@ __UNIVERSE_TAG__
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       applyViewOffset();
+      renderer.setPixelRatio(pixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
@@ -1183,7 +1254,7 @@ __UNIVERSE_TAG__
     }
     function pick(clientX, clientY) {
       setMouse(clientX, clientY);
-      const hits = raycaster.intersectObjects(starMeshes);
+      const hits = raycaster.intersectObjects(starMeshes.filter(m => m.visible));
       return hits.length ? hits[0].object : null;
     }
 
@@ -1775,6 +1846,7 @@ __UNIVERSE_TAG__
     function applyVisibility(searchTerm) {
       const term = (searchTerm || "").trim().toLowerCase();
       const matchByIndex = new Array(stars.length);
+      const hiddenByIndex = new Array(stars.length);
       starMeshes.forEach(sprite => {
         const s = sprite.userData.star;
         const i = sprite.userData.index;
@@ -1782,18 +1854,23 @@ __UNIVERSE_TAG__
         const topicText = ((s.topics || []).map(t => (topics[t] ? topics[t].label : t)).join(" ") + " " +
           ((s.analysis && s.analysis.subject) || "")).toLowerCase();
         const matchesSearch = !term || s.text.toLowerCase().includes(term) || topicText.includes(term);
-        const visible = clusterOn && matchesSearch && (!dayFilter || dayKey(parseTime(s.created_at)) === dayFilter);
+        const onDay = !!dayFilter && dayKey(parseTime(s.created_at)) === dayFilter;
+        const visible = clusterOn && matchesSearch && (!dayFilter || onDay);
+        // a folded thought comes out when a search or the calendar finds it
+        const shown = !isFolded(i) || (visible && (!!term || onDay));
+        hiddenByIndex[i] = !shown;
         matchByIndex[i] = visible;
+        sprite.visible = shown;
         sprite.material.opacity = visible ? sprite.userData.baseOpacity : 0.03;
         sprite.scale.setScalar(term && visible ? sprite.userData.baseScale * 1.5 : sprite.userData.baseScale);
-        if (clouds[i]) clouds[i].group.visible = visible;
+        if (clouds[i]) clouds[i].group.visible = visible && shown;
       });
       lineGroup.children.forEach(line => {
         const onA = clusterVisible[String(line.userData.clusterA)];
         const onB = clusterVisible[String(line.userData.clusterB)];
         const clustersOn = onA && onB;
         const endpointsMatch = matchByIndex[line.userData.sourceIdx] && matchByIndex[line.userData.targetIdx];
-        line.visible = clustersOn;
+        line.visible = clustersOn && !hiddenByIndex[line.userData.sourceIdx] && !hiddenByIndex[line.userData.targetIdx];
         line.material.opacity = (clustersOn && (!(term || dayFilter) || endpointsMatch)) ? line.userData.baseOpacity : 0.02;
       });
       if (selected >= 0) highlightEdges(selected);
@@ -1941,8 +2018,22 @@ __UNIVERSE_TAG__
     // ---- render loop ----
     const frameHooks = [];
     let rafId = 0;
+    let fpsFrames = 0, fpsSince = performance.now(), fpsRaised = 0;
+    function tuneResolution() {
+      fpsFrames++;
+      const now = performance.now(), span = now - fpsSince;
+      if (span < 2000) return;
+      const fps = fpsFrames * 1000 / span;
+      fpsFrames = 0; fpsSince = now;
+      if (document.hidden) return;
+      let next = pixelRatio;
+      if (fps < 42 && pixelRatio > 1) next = Math.max(1, pixelRatio - 0.25);
+      else if (fps > 58 && pixelRatio < maxRatio && fpsRaised < 3) { next = Math.min(maxRatio, pixelRatio + 0.25); fpsRaised++; }
+      if (next !== pixelRatio) { pixelRatio = next; renderer.setPixelRatio(pixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); }
+    }
     function animate() {
       rafId = requestAnimationFrame(animate);
+      tuneResolution();
       let camDirty = false;
       if (focusRadius !== null) {
         target.lerp(focusTarget, 0.07);
@@ -1957,8 +2048,10 @@ __UNIVERSE_TAG__
       if (camDirty) updateCamera();
       if (soul) {
         const t = performance.now() / 1000;
-        soul.scale.setScalar(14 * (1 + 0.07 * Math.sin(t * 1.7)));
-        soul.userData.halo.material.opacity = 0.26 + 0.1 * Math.sin(t * 1.1);
+        soul.scale.setScalar(18 * (1 + 0.06 * Math.sin(t * 1.7)));
+        soul.userData.halo.material.opacity = 0.34 + 0.1 * Math.sin(t * 1.1);
+        soul.userData.corona.material.rotation = t * 0.04;
+        soul.userData.corona.material.opacity = 0.4 + 0.08 * Math.sin(t * 0.8);
       }
       if (selected >= 0 && clouds[selected]) {
         const m = camera.matrixWorld.elements;
@@ -1967,7 +2060,7 @@ __UNIVERSE_TAG__
         clouds[selected].group.userData.labels.forEach(l => {
           if (!l.userData.anchor) return;
           l.userData.anchor.getWorldPosition(w);
-          l.position.copy(w).addScaledVector(up, -(2.3 + l.userData.slot * 1.75) * (window.innerWidth <= 720 ? 0.62 : 1));
+          l.position.copy(w).addScaledVector(up, -(2.3 + l.userData.slot * 1.75) * (window.innerWidth <= 720 ? 0.8 : 1));
         });
       }
       for (let b = bursts.length - 1; b >= 0; b--) {
@@ -1995,6 +2088,325 @@ __UNIVERSE_TAG__
     }
     animate();
 
+    // ---------------------------------------------------------------
+    // The sky of your past. Your soul is the Sun and this month's thoughts
+    // are loose stars around it. When a month ends, its stars gather into a
+    // Moon ("August 2026 Moon") orbiting the Sun; when a year ends, its moons
+    // gather around a Planet ("Planet 2026"); when a decade ends, its planets
+    // become a ringed Titan ("Titan of the 2020s") with a ring per year.
+    // Nothing is erased: click a body to list its thoughts or unfold them
+    // back into the sky, and search and the calendar still find every one.
+    // Each body's creation plays once, the first time it appears.
+    // ---------------------------------------------------------------
+    const sky = (function buildSky() {
+      const bodies = {}, targets = [];
+      scene.add(new THREE.PointLight(0xfff0d8, 1.7, 0), new THREE.AmbientLight(0x5a6080, 0.6));
+      const monthName = new Intl.DateTimeFormat(undefined, { month: "long" });
+      const shortDate = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
+      const tree = {};
+      stars.forEach((st, i) => {
+        let level = tree;
+        starChain[i].forEach(k => {
+          const node = level[k] || (level[k] = { key: k, idx: [], kids: {} });
+          node.idx.push(i);
+          level = node.kids;
+        });
+      });
+      const sorted = obj => Object.values(obj).sort((a, b) => (a.key < b.key ? -1 : 1));
+      const top = sorted(tree);
+      if (!top.length) return { openBody() {}, update() {} };
+
+      function nameOf(key) {
+        const [kind, v] = key.split(":");
+        if (kind === "month") { const [y, m] = v.split("-").map(Number); return `${monthName.format(new Date(y, m - 1, 1))} ${y} Moon`; }
+        if (kind === "year") return `Planet ${v}`;
+        return `Titan of the ${v}s`;
+      }
+      function hsl(key, sat, light) { return `hsl(${hueFor(key)}, ${sat}%, ${light}%)`; }
+      function surface(kind, key) {
+        const c = document.createElement("canvas");
+        c.width = 512; c.height = 256;
+        const x = c.getContext("2d"), h = hueFor(key);
+        let seed = hueFor(key + "#") + 7;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        if (kind === "month") {
+          x.fillStyle = `hsl(${h}, 10%, 70%)`; x.fillRect(0, 0, 512, 256);
+          for (let i = 0; i < 130; i++) {
+            x.fillStyle = `hsla(${h}, 12%, ${38 + rnd() * 26}%, 0.5)`;
+            x.beginPath(); x.arc(rnd() * 512, rnd() * 256, 2 + rnd() * 16, 0, Math.PI * 2); x.fill();
+          }
+        } else {
+          const sat = kind === "decade" ? 58 : 46;
+          for (let y = 0; y < 256; y += 4) {
+            x.fillStyle = `hsl(${(h + Math.sin(y * 0.05 + rnd() * 0.5) * 20 + 360) % 360}, ${sat}%, ${46 + Math.sin(y * 0.1 + rnd()) * 14}%)`;
+            x.fillRect(0, y, 512, 4);
+          }
+          if (kind === "year") {
+            x.fillStyle = `hsla(${(h + 40) % 360}, 60%, 72%, 0.5)`;
+            x.beginPath(); x.ellipse(340, 150, 44, 18, 0, 0, Math.PI * 2); x.fill();
+          }
+        }
+        const t = new THREE.CanvasTexture(c);
+        t.anisotropy = maxAniso;
+        return t;
+      }
+      function orbitLine(r, opacity) {
+        const pts = [];
+        for (let a = 0; a <= 96; a++) pts.push(new THREE.Vector3(Math.cos(a / 96 * Math.PI * 2) * r, 0, Math.sin(a / 96 * Math.PI * 2) * r));
+        return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color: 0x8ea2ff, transparent: true, opacity, depthWrite: false }));
+      }
+      function makeBody(node, parent, R, angle, tilt, speed, size) {
+        const kind = node.key.split(":")[0];
+        const pivot = new THREE.Group(), holder = new THREE.Group();
+        pivot.rotation.x = tilt;
+        holder.position.set(R, 0, 0);
+        pivot.add(holder);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(size, 48, 32), new THREE.MeshStandardMaterial({
+          map: surface(kind, node.key), roughness: 0.92, metalness: 0,
+          emissive: new THREE.Color(hsl(node.key, 40, 32)), emissiveIntensity: 0.28 }));
+        holder.add(mesh);
+        const orbit = orbitLine(R, parent === scene ? 0.1 : 0.16);
+        pivot.add(orbit);
+        const lab = makeLabel(nameOf(node.key), hsl(node.key, 70, 72), false);
+        lab.position.set(0, size + 2.6, 0);
+        holder.add(lab);
+        parent.add(pivot);
+        const body = { key: node.key, kind, idx: node.idx, pivot, holder, mesh, lab, angle, speed, kids: [], parent: null };
+        mesh.userData.body = body; lab.userData.body = body;
+        targets.push(mesh, lab);
+        bodies[node.key] = body;
+        return body;
+      }
+
+      // moons of this year orbit the Sun directly
+      top.filter(n => n.key.startsWith("month:")).forEach(n => {
+        const m = Number(n.key.slice(-2));
+        makeBody(n, scene, 64 + (m % 3) * 6, m / 12 * Math.PI * 2, 0.1 + (m % 4) * 0.05, 0.05, 2.2 + Math.min(1.6, n.idx.length * 0.08));
+      });
+      // planets for the finished years of this decade, each with its moons
+      top.filter(n => n.key.startsWith("year:")).forEach(n => {
+        const y = Number(n.key.slice(5)), R = 100 + (CUR_Y - 1 - y) * 15;
+        const size = 4 + Math.min(2.5, n.idx.length * 0.04);
+        const p = makeBody(n, scene, R, hueFor(n.key) / 57, 0.06 + (y % 5) * 0.035, 2.6 / R, size);
+        sorted(n.kids).forEach(mn => {
+          const m = Number(mn.key.slice(-2));
+          const moon = makeBody(mn, p.holder, size + 3.5 + (m % 4) * 1.5, m / 12 * Math.PI * 2, 0.3 + (m % 3) * 0.15, 0.35,
+            0.9 + Math.min(0.9, mn.idx.length * 0.06));
+          moon.parent = p; moon.lab.visible = false;
+          p.kids.push(moon);
+        });
+      });
+      // ringed titans for finished decades, one ring per year
+      top.filter(n => n.key.startsWith("decade:")).forEach(n => {
+        const dec = Number(n.key.slice(7)), R = 250 + ((CUR_DEC - dec) / 10 - 1) * 36;
+        const g = makeBody(n, scene, R, hueFor(n.key) / 57, 0.1, 1.6 / R, 7.5);
+        sorted(n.kids).forEach((yn, yi) => {
+          const inner = 10 + yi * 1.6;
+          const ring = new THREE.Mesh(new THREE.RingGeometry(inner, inner + 1.15, 128), new THREE.MeshBasicMaterial({
+            color: new THREE.Color(hsl(yn.key, 55, 68)), side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false }));
+          ring.rotation.x = -Math.PI / 2 + 0.38;
+          g.holder.add(ring);
+          const yb = { key: yn.key, kind: "ring", title: `${yn.key.slice(5)} — a ring of ${nameOf(n.key)}`, idx: yn.idx,
+            holder: g.holder, mesh: ring, lab: null, kids: [], parent: g };
+          ring.userData.body = yb;
+          targets.push(ring);
+          bodies[yn.key] = yb;
+          g.kids.push(yb);
+        });
+      });
+
+      // ---- threads from an unfolded body out to its thoughts ----
+      const threads = {};
+      function rebuildThreads() {
+        Object.keys(threads).forEach(k => { if (!unfolded.has(k)) { scene.remove(threads[k]); disposeObject(threads[k]); delete threads[k]; } });
+        unfolded.forEach(k => {
+          const b = bodies[k];
+          if (!b || threads[k]) return;
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(b.idx.length * 6), 3));
+          threads[k] = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+            color: new THREE.Color(hsl(k, 70, 72)), transparent: true, opacity: 0.22, depthWrite: false }));
+          threads[k].userData.body = b;
+          threads[k].frustumCulled = false;
+          scene.add(threads[k]);
+        });
+      }
+      function toggleFold(key) {
+        if (unfolded.has(key)) unfolded.delete(key); else unfolded.add(key);
+        rebuildThreads();
+        applyVisibility(document.getElementById("search-input").value);
+      }
+
+      // ---- the body panel ----
+      const panel = el("div", "panel");
+      panel.id = "sky-panel";
+      panel.setAttribute("role", "dialog");
+      document.body.appendChild(panel);
+      cleanups.push(() => { panel.remove(); document.body.classList.remove("sky-open"); });
+      let follow = null;
+      function closeBody() {
+        panel.classList.remove("open");
+        document.body.classList.remove("sky-open");
+        follow = null;
+        Object.values(bodies).forEach(o => { if (o.parent && o.lab) o.lab.visible = false; });
+      }
+      function openBody(key) {
+        const b = bodies[key];
+        if (!b) return;
+        if (selected >= 0) deselect();
+        Object.values(bodies).forEach(o => { if (o.parent && o.lab) o.lab.visible = o.parent === b || (!!b.parent && o.parent === b.parent); });
+        follow = b.kind === "ring" ? b.parent : b;
+        flyTo(worldPos(follow), follow.kind === "decade" ? 70 : follow.kind === "year" ? 42 : 26);
+        panel.innerHTML = "";
+        const x = el("button", "sky-x", "×");
+        x.type = "button"; x.setAttribute("aria-label", "Close");
+        x.addEventListener("click", closeBody);
+        const n = b.idx.length;
+        const what = b.kind === "month" ? (b.parent ? `a moon of ${nameOf(b.parent.key)}` : "orbiting your Sun")
+          : b.kind === "year" ? `${b.kids.length} ${b.kids.length === 1 ? "moon" : "moons"}, one for each month`
+          : b.kind === "decade" ? `${b.kids.length} ${b.kids.length === 1 ? "ring" : "rings"}, one for each year`
+          : "each ring holds a year";
+        panel.append(x, el("h3", null, b.title || nameOf(key)),
+          el("div", "sky-sub", `${n} ${n === 1 ? "thought" : "thoughts"} · ${what}`));
+        const act = el("button", "pill-btn", unfolded.has(key) ? "⤺ Fold back" : "✨ Unfold into the sky");
+        act.type = "button";
+        act.addEventListener("click", () => { toggleFold(key); openBody(key); });
+        panel.appendChild(act);
+        if (b.kids.length) {
+          const kids = el("div", "sky-kids");
+          b.kids.forEach(k => {
+            const kb = el("button", null, `${k.kind === "ring" ? "◌ " + k.key.slice(5) : "🌙 " + monthName.format(new Date(2000, Number(k.key.slice(-2)) - 1, 1))} · ${k.idx.length}`);
+            kb.type = "button";
+            kb.addEventListener("click", () => openBody(k.key));
+            kids.appendChild(kb);
+          });
+          panel.appendChild(kids);
+        }
+        const list = el("div", "sky-list");
+        b.idx.slice().sort((p, q) => parseTime(stars[p].created_at) - parseTime(stars[q].created_at)).slice(0, 300).forEach(i => {
+          const row = el("button");
+          row.type = "button";
+          row.appendChild(el("div", "tm", shortDate.format(parseTime(stars[i].created_at))));
+          row.appendChild(el("div", null, truncate(stars[i].text, 120)));
+          row.addEventListener("click", () => {
+            if (!unfolded.has(key)) toggleFold(key);
+            closeBody();
+            selectStar(i);
+          });
+          list.appendChild(row);
+        });
+        panel.appendChild(list);
+        panel.classList.add("open");
+        document.body.classList.add("sky-open");
+      }
+
+      const tmp = new THREE.Vector3();
+      function worldPos(b) { return b.mesh.getWorldPosition(new THREE.Vector3()); }
+
+      // ---- clicking and hovering ----
+      extraPickers.push(rc => {
+        const hit = rc.intersectObjects(targets.filter(o => o.visible), false)[0];
+        if (!hit) return false;
+        const starHit = rc.intersectObjects(starMeshes.filter(m => m.visible))[0];
+        if (starHit && starHit.distance < hit.distance) return false;
+        openBody(hit.object.userData.body.key);
+        return true;
+      });
+      dom.addEventListener("mousemove", e => {
+        if (dragging) return;
+        setMouse(e.clientX, e.clientY);
+        if (raycaster.intersectObjects(targets.filter(o => o.visible), false).length) dom.style.cursor = "pointer";
+      });
+
+      // ---- creation animations: the stars stream in and the body is born ----
+      const FKEY = "gc-sky:" + (OWNER || "local");
+      let formed;
+      try { formed = new Set(JSON.parse(localStorage.getItem(FKEY) || "[]")); } catch (e) { formed = new Set(); }
+      const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const fresh = Object.values(bodies).filter(b => !b.parent && !formed.has(b.key));
+      const forming = [];
+      const order = { decade: 0, year: 1, month: 2 };
+      fresh.sort((a, b) => order[a.kind] - order[b.kind] || (a.key < b.key ? -1 : 1));
+      const shows = calm ? [] : fresh.slice(-6);   // at most six at once; the newest play
+      const t0 = performance.now() / 1000;
+      shows.forEach((b, n) => {
+        b.holder.scale.setScalar(0.001);
+        const comets = b.idx.slice(0, 48).map(i => {
+          const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: starMeshes[i].material.color.clone(),
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+          sp.scale.setScalar(3.4);
+          sp.position.copy(starMeshes[i].position);
+          sp.visible = false;
+          scene.add(sp);
+          return { sp, from: sp.position.clone() };
+        });
+        const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(hsl(b.key, 80, 75)),
+          transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+        scene.add(flash);
+        forming.push({ b, comets, flash, start: t0 + 1.4 + n * 1.8, dur: 2.4, told: false });
+      });
+      fresh.forEach(b => formed.add(b.key));
+      try { localStorage.setItem(FKEY, JSON.stringify([...formed])); } catch (e) { /* private mode */ }
+      const icon = { month: "🌙", year: "🪐", decade: "💫" };
+
+      let last = t0;
+      function update(t) {
+        const dt = Math.min(0.1, t - last);
+        last = t;
+        Object.values(bodies).forEach(b => {
+          if (b.pivot) b.pivot.rotation.y = b.angle + t * b.speed;
+          if (b.kind !== "ring") b.mesh.rotation.y += dt * 0.18;
+        });
+        Object.values(threads).forEach(line => {
+          const b = line.userData.body, arr = line.geometry.attributes.position.array;
+          b.mesh.getWorldPosition(tmp);
+          b.idx.forEach((i, k) => {
+            arr.set([tmp.x, tmp.y, tmp.z], k * 6);
+            const p = starMeshes[i].position;
+            arr.set([p.x, p.y, p.z], k * 6 + 3);
+          });
+          line.geometry.attributes.position.needsUpdate = true;
+        });
+        if (follow && selected < 0) {
+          if (dragging) follow = null;
+          else { focusTarget.copy(worldPos(follow)); if (focusRadius === null) focusRadius = radius; }
+        }
+        for (let f = forming.length - 1; f >= 0; f--) {
+          const fm = forming[f], age = t - fm.start;
+          if (age < 0) continue;
+          fm.b.mesh.getWorldPosition(tmp);
+          const p = Math.min(1, age / fm.dur), e = p * p * (3 - 2 * p);
+          fm.comets.forEach(c => {
+            c.sp.visible = p < 1;
+            c.sp.position.lerpVectors(c.from, tmp, e);
+            c.sp.material.opacity = 1 - 0.5 * e;
+            c.sp.scale.setScalar(3.4 * (1 - 0.6 * e));
+          });
+          if (p < 1) continue;
+          const g = Math.min(1, (age - fm.dur) / 1.1);
+          const back = 1 + 2.2 * Math.pow(g - 1, 3) + 1.2 * Math.pow(g - 1, 2);   // ease-out with a little overshoot
+          fm.b.holder.scale.setScalar(Math.max(0.001, back));
+          fm.flash.position.copy(tmp);
+          fm.flash.scale.setScalar(6 + 40 * g);
+          fm.flash.material.opacity = 0.9 * (1 - g);
+          if (!fm.told) {
+            fm.told = true;
+            if (window.GC_notify) window.GC_notify({ kind: "sky", icon: icon[fm.b.kind], body: fm.b.key,
+              text: `${nameOf(fm.b.key)} has formed from ${fm.b.idx.length} ${fm.b.idx.length === 1 ? "thought" : "thoughts"}` });
+          }
+          if (g >= 1) {
+            fm.comets.forEach(c => { scene.remove(c.sp); c.sp.material.dispose(); });
+            scene.remove(fm.flash); fm.flash.material.dispose();
+            forming.splice(f, 1);
+          }
+        }
+      }
+      return { openBody, update };
+    })();
+    frameHooks.push(t => sky.update(t));
+    applyVisibility(document.getElementById("search-input").value);
+
     // ---- open straight onto a just-added thought (or a lone first star) ----
     const params = new URLSearchParams(window.location.search);
     const wanted = focusId != null ? String(focusId) : params.get("focus");
@@ -2013,6 +2425,7 @@ __UNIVERSE_TAG__
       onClick: fn => extraPickers.push(fn),
       deselect: () => { if (selected >= 0) deselect(); },
       openHistory: () => toggleHistory(true),
+      openBody: key => sky.openBody(key),
     };
     document.dispatchEvent(new Event("mindgalaxy:ready"));
 

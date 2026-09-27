@@ -281,6 +281,12 @@
         const rel = gx.status || (gx.families.length ? "family" : null);
         const galaxy = spiralGalaxy(gx.username, gx.stars);
         galaxy.position.copy(pos);
+        // people you're connected with show whether they're online: offline
+        // galaxies keep their shape and colours but lose their glow
+        if (gx.can_text && !gx.online) {
+          galaxy.children.forEach(o => { if (o.material) o.material.opacity *= o.isPoints ? 0.28 : 0.2; });
+          galaxy.userData.spin *= 0.3;
+        }
         add(galaxy); spinning.push(galaxy);
         // a screen-sized name tag that follows the galaxy (readable at any zoom)
         const label = el("button", "gx-tag");
@@ -289,6 +295,8 @@
         label.appendChild(document.createTextNode((rel ? STATUS[rel].emoji + " " : "") + gx.username));
         if (gx.online) label.appendChild(el("span", "gx-online", "●"));
         label.style.borderColor = rel ? STATUS[rel].css : "rgba(142,162,255,0.5)";
+        if (gx.can_text && !gx.online) { label.classList.add("offline"); label.title = gx.username + " is offline"; }
+        if (unreadFrom(gx.username)) label.appendChild(el("span", "gx-unread", "💬 " + unreadFrom(gx.username)));
         label.addEventListener("click", () => openCard(gx.username));
         ui.tags.appendChild(label);
         tags.push([label, pos.clone().add(new THREE.Vector3(0, 48, 0))]);
@@ -314,6 +322,7 @@
         }
       });
       ui.reqCount.textContent = data.requests_in.length ? ` (${data.requests_in.length})` : "";
+      renderCounter();
       ui.reqBtn.classList.toggle("has", data.requests_in.length > 0);
     }
 
@@ -357,6 +366,7 @@
           if (ui.reqPanel.classList.contains("open")) renderRequests();
         }
         if (next.swallows.length && !swallowing) playSwallows(next.swallows);
+        collectNotifications(next);
       } catch (e) { /* offline or signed out; try again next round */ }
     }
 
@@ -375,6 +385,32 @@
       .gx-title { display: flex; align-items: center; gap: 10px; }
       .gx-online { color: #5ff08a; font-size: 10px; }
       #chat-title { display: flex; align-items: center; gap: 6px; }
+      .gx-tag.offline { opacity: 0.55; filter: saturate(0.6); }
+      .gx-unread { background: #ff6b8a; color: #fff; border-radius: 10px; padding: 0 6px; font-size: 10.5px; }
+      #bell-btn { position: relative; }
+      .bell-count { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+        background: #ff5a6e; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+      #bell-panel { position: fixed; top: 62px; right: 26px; width: min(360px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+        padding: 12px; z-index: 60; display: none; }
+      #bell-panel.open { display: block; }
+      .np-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+      .np-link { font: inherit; font-size: 11.5px; background: none; border: none; color: var(--accent); cursor: pointer; }
+      .np-item { display: flex; gap: 9px; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: var(--text);
+        background: transparent; border: none; border-radius: 10px; padding: 8px; cursor: pointer; }
+      .np-item:hover { background: rgba(255,255,255,0.06); }
+      .np-item.unread { background: rgba(142,162,255,0.1); }
+      .np-text { font-size: 13px; line-height: 1.4; }
+      .np-time { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+      #notif-pop { position: fixed; top: 64px; right: 26px; z-index: 170; display: flex; gap: 10px; align-items: center; padding: 12px 14px;
+        max-width: min(360px, calc(100vw - 32px)); cursor: pointer; transform: translateY(-16px); opacity: 0; pointer-events: none;
+        transition: transform 0.3s ease, opacity 0.3s ease; }
+      #notif-pop.open { transform: none; opacity: 1; pointer-events: auto; }
+      #friend-counter { position: fixed; right: 26px; bottom: 76px; z-index: 12; display: flex; gap: 12px; padding: 8px 14px;
+        font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+      @media (max-width: 720px) {
+        #bell-panel, #notif-pop { right: 12px; left: 12px; width: auto; top: 128px; z-index: 60; }
+        #friend-counter { right: 16px; bottom: 150px; font-size: 13px; gap: 10px; }
+      }
       #req-btn.has { border-color: rgba(255,210,122,0.6); color: #ffd27a; }
       .soc-panel { position: fixed; top: 66px; right: 26px; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 170px);
         overflow-y: auto; padding: 18px; z-index: 35; display: none; }
@@ -463,15 +499,25 @@
       const viewer = el("div"); viewer.id = "viewer";
       viewer.setAttribute("role", "dialog"); viewer.setAttribute("aria-modal", "true");
       const toast = el("div", "panel"); toast.id = "toast"; toast.setAttribute("role", "status");
+      const bell = el("button", "pill-btn"); bell.id = "bell-btn"; bell.type = "button";
+      bell.setAttribute("aria-label", "Notifications");
+      bell.appendChild(document.createTextNode("🔔"));
+      const bellCount = el("span", "bell-count"); bell.appendChild(bellCount);
+      row.insertBefore(bell, document.getElementById("user-chip"));
+      const bellPanel = el("div", "hud panel"); bellPanel.id = "bell-panel";
+      const pop = el("div", "panel"); pop.id = "notif-pop"; pop.setAttribute("role", "status");
+      const counter = el("button", "hud panel"); counter.id = "friend-counter"; counter.type = "button";
+      counter.title = "Your connections";
+      counter.addEventListener("click", () => reqBtn.click());
       const tags = el("div"); tags.id = "gx-tags";
-      [tags, card, reqPanel, chat, viewer, toast].forEach(n => document.body.appendChild(n));
+      [tags, card, reqPanel, chat, viewer, toast, bellPanel, pop, counter].forEach(n => document.body.appendChild(n));
       reqBtn.addEventListener("click", () => {
         const open = !reqPanel.classList.contains("open");
         closeCard();
         reqPanel.classList.toggle("open", open);
         if (open) renderRequests();
       });
-      return { reqBtn, reqCount, card, reqPanel, chat, viewer, toast, tags };
+      return { reqBtn, reqCount, card, reqPanel, chat, viewer, toast, tags, bell, bellCount, bellPanel, pop, counter };
     }
 
     let toastTimer = 0;
@@ -575,7 +621,7 @@
           `Request sent to ${name}`)));
       };
 
-      if (gx.can_chat) card.appendChild(button("💬 Chat", "primary", () => openChat(name)));
+      if (gx.can_text) card.appendChild(button(gx.can_chat ? "💬 Chat" : "💬 Chat (words only)", "primary", () => openChat(name)));
       if (gx.status === "partner" || gx.families.length) {
         card.appendChild(button(gx.status === "partner" ? "📖 Read their thoughts" : "📖 Thoughts they share with family", "",
           () => showThoughts(name)));
@@ -766,6 +812,163 @@
     });
 
     // ------------------------------------------------------------------
+    // Notifications: a bell with everything that happened, pop-ups with a
+    // chime, and (if allowed) the device's own notifications when the tab
+    // is in the background. Kept per user on this device.
+    // ------------------------------------------------------------------
+    const NKEY = "gc-notifs:" + G.owner, SKEY = "gc-seen:" + G.owner;
+    const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
+    const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
+    let notes = load(NKEY, []);
+    let seen = load(SKEY, null);
+    const unread = {};   // username -> unread message count
+
+    function unreadFrom(name) { return unread[name] || 0; }
+    function markRead(name) {
+      if (!unread[name]) return;
+      delete unread[name];
+      notes.forEach(n => { if (n.kind === "message" && n.name === name) n.read = true; });
+      save(NKEY, notes);
+      renderBell();
+      if (data) draw();
+    }
+
+    function chime() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [[880, 0], [1320, 0.12]].forEach(([f, t]) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = "sine"; o.frequency.value = f; o.connect(g); g.connect(ctx.destination);
+          g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+          g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.35);
+          o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.4);
+        });
+        setTimeout(() => ctx.close().catch(() => null), 900);
+      } catch (e) { /* sound not allowed yet */ }
+    }
+
+    function runAction(n) {
+      if (n.kind === "sky") { if (window.MindGalaxy && window.MindGalaxy.openBody) window.MindGalaxy.openBody(n.body); return; }
+      if (n.name && n.kind === "message") openChat(n.name);
+      else if (n.name) openCard(n.name);
+      else ui.reqBtn.click();
+    }
+
+    let popTimer = 0;
+    function notify(n) {
+      n = Object.assign({ id: Date.now() + Math.random(), at: new Date().toISOString(), read: false, popup: true }, n);
+      notes.unshift(n);
+      notes = notes.slice(0, 80);
+      save(NKEY, notes);
+      renderBell();
+      if (!n.popup) return;
+      chime();
+      if (navigator.vibrate) navigator.vibrate(60);
+      const pop = ui.pop;
+      pop.innerHTML = "";
+      if (n.name) pop.appendChild(logoImg(n.name, 28));
+      pop.appendChild(el("div", "np-text", `${n.icon || "🔔"} ${n.text}`));
+      pop.onclick = () => { pop.classList.remove("open"); runAction(n); };
+      pop.classList.add("open");
+      clearTimeout(popTimer);
+      popTimer = setTimeout(() => pop.classList.remove("open"), 5500);
+      if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+        try {
+          const dn = new Notification("Galactic Connections", { body: `${n.icon || ""} ${n.text}`, icon: "/icon-192.png", tag: String(n.kind) + (n.name || "") });
+          dn.onclick = () => { window.focus(); runAction(n); dn.close(); };
+        } catch (e) { /* not supported here */ }
+      }
+    }
+    window.GC_notify = notify;   // calls.js and the galaxy page report here too
+
+    function collectNotifications(u) {
+      const first = !seen;
+      seen = seen || { msg: 0, req: [] };
+      const newest = Math.max(seen.msg, ...u.inbox.map(m => m.id), 0);
+      if (!first) {
+        u.inbox.filter(m => m.id > seen.msg).reverse().forEach(m => {
+          const open = chatWith === m.from && ui.chat.classList.contains("open") && !document.hidden;
+          if (!open) unread[m.from] = (unread[m.from] || 0) + 1;
+          notify({ kind: "message", icon: "💬", name: m.from, text: `${m.from}: ${m.preview}`, popup: !open });
+          if (open) loadChat();
+        });
+        u.requests_in.filter(r => !seen.req.includes(r.id)).forEach(r =>
+          notify({ kind: "request", icon: "✉️", name: r.from, text: `${r.from} ${describe(r)}` }));
+      }
+      seen = { msg: newest, req: u.requests_in.map(r => r.id) };
+      save(SKEY, seen);
+      if (Object.keys(unread).length) draw();
+    }
+
+    function renderBell() {
+      const count = notes.filter(n => !n.read).length;
+      ui.bellCount.textContent = count ? String(Math.min(count, 99)) : "";
+      ui.bellCount.style.display = count ? "" : "none";
+      if (ui.bellPanel.classList.contains("open")) renderNotes();
+    }
+    function renderNotes() {
+      const p = ui.bellPanel;
+      p.innerHTML = "";
+      const head = el("div", "np-head");
+      head.appendChild(el("b", null, "Notifications"));
+      const clear = el("button", "np-link", "Mark all read");
+      clear.type = "button";
+      clear.onclick = () => { notes.forEach(n => (n.read = true)); Object.keys(unread).forEach(k => delete unread[k]); save(NKEY, notes); renderBell(); renderNotes(); draw(); };
+      head.appendChild(clear);
+      p.appendChild(head);
+      if ("Notification" in window && Notification.permission === "default") {
+        const ask = button("🔔 Also notify me when this tab is in the background", "", async () => {
+          try { await Notification.requestPermission(); } catch (e) { /* ignored */ }
+          renderNotes();
+        });
+        p.appendChild(ask);
+      }
+      if (!notes.length) p.appendChild(el("div", "soc-note", "Nothing yet. Messages, requests, calls and cosmic events show up here."));
+      notes.forEach(n => {
+        const row = el("button", "np-item" + (n.read ? "" : " unread"));
+        row.type = "button";
+        if (n.name) row.appendChild(logoImg(n.name, 22));
+        const body = el("div");
+        body.appendChild(el("div", "np-text", `${n.icon || "🔔"} ${n.text}`));
+        body.appendChild(el("div", "np-time", new Date(n.at).toLocaleString()));
+        row.appendChild(body);
+        row.onclick = () => { n.read = true; save(NKEY, notes); renderBell(); p.classList.remove("open"); runAction(n); };
+        p.appendChild(row);
+      });
+    }
+    ui.bell.addEventListener("click", () => {
+      const open = !ui.bellPanel.classList.contains("open");
+      ui.bellPanel.classList.toggle("open", open);
+      if (open) renderNotes();
+    });
+    // a tap anywhere else closes it
+    document.addEventListener("pointerdown", e => {
+      if (ui.bellPanel.classList.contains("open") && !ui.bellPanel.contains(e.target) && !ui.bell.contains(e.target)) {
+        ui.bellPanel.classList.remove("open");
+      }
+    }, true);
+    renderBell();
+
+    // your connections, counted in the bottom-right corner
+    function renderCounter() {
+      const count = st => data.galaxies.filter(g => g.status === st).length;
+      const family = new Set(data.families.flatMap(f => f.members)).size;
+      const parts = [["🤝", count("friend"), "friends"], ["💞", count("partner"), "life partner"],
+                     ["🏡", Math.max(0, family - (family ? 1 : 0)), "family"], ["⚔️", count("enemy"), "enemies"]];
+      ui.counter.innerHTML = "";
+      parts.forEach(([icon, n, label]) => {
+        const sp = el("span", null, `${icon} ${n}`);
+        sp.title = `${n} ${label}`;
+        ui.counter.appendChild(sp);
+      });
+    }
+
+    // instant "you've got a message" nudge through the call switchboard
+    function notifyPeer(name) { if (window.gcNudge) window.gcNudge(name); }
+    window.gcOnNudge = () => refresh(false);
+
+    // ------------------------------------------------------------------
     // Chat
     // ------------------------------------------------------------------
     const log = () => document.getElementById("chat-log");
@@ -781,7 +984,7 @@
       const text = input.value.trim();
       if (!text || !chatWith) return;
       input.value = "";
-      try { await api("POST", `/api/chat/${encodeURIComponent(chatWith)}`, { text }); await loadChat(); }
+      try { await api("POST", `/api/chat/${encodeURIComponent(chatWith)}`, { text }); notifyPeer(chatWith); await loadChat(); }
       catch (e) { input.value = text; setChatStatus(e.message); }
     });
     document.getElementById("chat-file").addEventListener("change", async ev => {
@@ -805,7 +1008,11 @@
       loadChat();
       clearInterval(chatTimer);
       chatTimer = setInterval(() => { if (!document.hidden) loadChat(); }, 4000);
+      const gx = data && data.galaxies.find(g => g.username === name);
+      // enemies can talk, but can't send photos or media
+      document.querySelector("#chat-form label").style.display = gx && gx.can_chat ? "" : "none";
       document.getElementById("chat-input").focus();
+      markRead(name);
     }
     function closeChat() { chatWith = null; clearInterval(chatTimer); ui.chat.classList.remove("open"); }
 
@@ -867,18 +1074,24 @@
       return new Promise(res => { const t = db.transaction("keys", "readwrite").objectStore("keys").put(v, k); t.onsuccess = () => res(); t.onerror = () => res(); });
     }
 
+    // Each device keeps its own key pair (private half non-extractable) and a
+    // random device id; the server stores up to 6 public keys per user.
     let myKeys = null;
     async function keys() {
       if (myKeys) return myKeys;
-      const slot = "user:" + G.owner;
-      let pair = await idbGet(slot);
-      if (!pair) {
-        // the private key is non-extractable: it can be used here, never exported
-        pair = await crypto.subtle.generateKey(CURVE, false, ["deriveKey"]);
-        await idbPut(slot, pair);
+      const slot = "device:" + G.owner;
+      let rec = await idbGet(slot);
+      if (!rec) {
+        const old = await idbGet("user:" + G.owner);   // key from before devices had ids
+        const pair = old || await crypto.subtle.generateKey(CURVE, false, ["deriveKey"]);
+        const id = new Uint8Array(12);
+        crypto.getRandomValues(id);
+        rec = { pair, deviceId: "dev-" + Array.from(id, b => b.toString(16).padStart(2, "0")).join("") };
+        await idbPut(slot, rec);
       }
-      const pub = await crypto.subtle.exportKey("jwk", pair.publicKey);
-      myKeys = { priv: pair.privateKey, pubJwk: { kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y } };
+      const pub = await crypto.subtle.exportKey("jwk", rec.pair.publicKey);
+      myKeys = { priv: rec.pair.privateKey, deviceId: rec.deviceId,
+                 pubJwk: { kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y } };
       return myKeys;
     }
     async function sharedKey(theirJwk, usage) {
@@ -887,29 +1100,72 @@
       return crypto.subtle.deriveKey({ name: "ECDH", public: theirPub }, priv, { name: "AES-GCM", length: 256 }, false, [usage]);
     }
 
-    async function sendMedia(name, file) {
-      const kind = (file.type || "").split("/")[0];
-      if (!["image", "audio", "video"].includes(kind)) return setChatStatus("Only photos, audio and video can be sent.");
-      if (file.size > 4 * 1024 * 1024 - 64) return setChatStatus("That file is over 4 MB. Try a shorter clip or smaller photo.");
+    // Big phone photos are shrunk (max 2560 px, JPEG) before encrypting, so
+    // they fit the 4 MB limit and send quickly. Anything the browser can't
+    // decode (e.g. HEIC outside Safari) is sent as it is.
+    async function shrinkImage(file) {
+      if (!file.type.startsWith("image/") || file.type === "image/gif" || file.size < 1.5 * 1024 * 1024) return file;
       try {
-        setChatStatus("Encrypting…");
-        const { jwk } = await api("GET", `/api/keys/${encodeURIComponent(name)}`);
-        if (!jwk) return setChatStatus(`${name} needs to open Galactic Connections once before they can receive media.`);
-        const key = await sharedKey(JSON.parse(jwk), "encrypt");
+        const bmp = await createImageBitmap(file);
+        const scale = Math.min(1, 2560 / Math.max(bmp.width, bmp.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+        c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+        const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.88));
+        return blob && blob.size < file.size ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
+      } catch (e) { return file; }
+    }
+
+    async function sendMedia(name, original) {
+      const kind = (original.type || "").split("/")[0];
+      if (!["image", "audio", "video"].includes(kind)) return setChatStatus("Only photos, audio and video can be sent.");
+      try {
+        setChatStatus(kind === "image" ? "Preparing photo…" : "Encrypting…");
+        const file = await shrinkImage(original);
+        if (file.size > 4 * 1024 * 1024 - 64) {
+          return setChatStatus("That file is over 4 MB. Try a shorter clip or a smaller photo.");
+        }
+        const { devices } = await api("GET", `/api/keys/${encodeURIComponent(name)}`);
+        if (!devices || !devices.length) {
+          return setChatStatus(`${name} needs to open Galactic Connections once before they can receive media.`);
+        }
+        // one random content key, wrapped separately for each of their devices
+        const content = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, await file.arrayBuffer());
+        const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, content, await file.arrayBuffer());
+        const raw = new Uint8Array(await crypto.subtle.exportKey("raw", content));
+        const wrapped = {};
+        for (const d of devices.slice(0, 6)) {
+          const k = await sharedKey(JSON.parse(d.jwk), "encrypt");
+          const wiv = crypto.getRandomValues(new Uint8Array(12));
+          wrapped[d.device_id] = { w: b64(new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: wiv }, k, raw))), iv: b64(wiv) };
+        }
         const { pubJwk } = await keys();
         setChatStatus("Sending…");
         const r = await fetch(`/api/chat/${encodeURIComponent(name)}/media`, {
           method: "POST", body: data,
           headers: { "Content-Type": "application/octet-stream", "X-MindGalaxy": "1", "X-Media-Kind": kind,
-            "X-Media-Mime": file.type, "X-Media-IV": b64(iv), "X-Media-Key": JSON.stringify(pubJwk) },
+            "X-Media-Mime": file.type, "X-Media-IV": b64(iv),
+            "X-Media-Key": JSON.stringify({ v: 2, sender: pubJwk, keys: wrapped }) },
         });
         const out = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(out.error || `Upload failed (${r.status})`);
         setChatStatus("Sent. It disappears after it's viewed.");
+        notifyPeer(name);
         await loadChat();
       } catch (e) { setChatStatus(e.message); }
+    }
+
+    async function decryptMedia(r, cipher) {
+      const env = JSON.parse(r.headers.get("X-Media-Key"));
+      const iv = unb64(r.headers.get("X-Media-IV"));
+      if (env && env.v === 2) {
+        const k = await sharedKey(env.sender, "decrypt");
+        const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(env.wrapped.iv) }, k, unb64(env.wrapped.w));
+        const content = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["decrypt"]);
+        return crypto.subtle.decrypt({ name: "AES-GCM", iv }, content, cipher);
+      }
+      return crypto.subtle.decrypt({ name: "AES-GCM", iv }, await sharedKey(env, "decrypt"), cipher);   // older media
     }
 
     async function openMedia(media) {
@@ -928,13 +1184,14 @@
         loadChat();
       };
       try {
-        const r = await fetch(`/api/media/${media.id}/open`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const { deviceId } = await keys();
+        const r = await fetch(`/api/media/${media.id}/open`, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_id: deviceId }) });
         if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || "This media is no longer available."); }
         const cipher = await r.arrayBuffer();
-        const key = await sharedKey(JSON.parse(r.headers.get("X-Media-Key")), "decrypt");
         let plain;
-        try { plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(r.headers.get("X-Media-IV")) }, key, cipher); }
-        catch (e) { throw new Error("This was encrypted for your key on another device, so it can't be opened here. It has now been deleted."); }
+        try { plain = await decryptMedia(r, cipher); }
+        catch (e) { throw new Error("This couldn't be decrypted on this device."); }
         url = URL.createObjectURL(new Blob([plain], { type: r.headers.get("X-Media-Mime") }));
         viewer.innerHTML = "";
         const kind = r.headers.get("X-Media-Kind");
@@ -991,6 +1248,8 @@
       if (openName === s.with) closeCard();
       G.flyTo(holePos, 260);
       swallowing = { t0: null, galaxy, hole, from: victimPos.clone(), holePos, done: false, info: s, rest: list.slice(1) };
+      notify({ kind: "swallow", icon: "🕳️", text: s.you_were_swallowed
+        ? `The black hole cut you apart from ${s.with} for ever.` : `The black hole swallowed ${s.swallowed}'s galaxy.`, popup: false });
       toast(s.you_were_swallowed
         ? `🕳️ The black hole between you and ${s.with} has swallowed your galaxy's link to them. You're cut apart for ever.`
         : `🕳️ The black hole is swallowing ${s.swallowed}'s galaxy. You'll never be connected again.`, 6500);
@@ -1036,7 +1295,7 @@
     document.dispatchEvent(new Event("gc:ready"));
 
     // ------------------------------------------------------------------
-    keys().then(k => api("POST", "/api/keys", { jwk: JSON.stringify(k.pubJwk) })).catch(() => null);
+    keys().then(k => api("POST", "/api/keys", { jwk: JSON.stringify(k.pubJwk), device_id: k.deviceId })).catch(() => null);
     refresh(true);
     setInterval(() => { if (!document.hidden) refresh(false); }, 15000);
   }

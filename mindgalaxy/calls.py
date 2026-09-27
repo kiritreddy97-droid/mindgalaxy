@@ -61,6 +61,14 @@ class Calls:
         row = self.s._one("SELECT peer_id FROM presence WHERE user_id = ? AND seen >= ?", (uid, cutoff))
         return row[0] if row else None
 
+    def peer_of(self, me: int, username: str) -> Optional[str]:
+        """Someone's current session id, for an instant "new message" nudge --
+        only for people you can chat with, and only while they're online."""
+        other = self.s.user_id(username)
+        if not self.s.can_text(me, other):
+            raise SocialError("You're not connected.", 403)
+        return self.online_peer(other)
+
     def online_contacts(self, me: int, usernames: list[str]) -> dict[str, bool]:
         out = {}
         for name in usernames[:100]:

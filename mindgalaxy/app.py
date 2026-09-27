@@ -563,6 +563,11 @@ def create_app(
         Calls(social).set_presence(me, str(_body().get("peer_id", "")))
         return jsonify({"ok": True})
 
+    @app.get("/api/presence/<username>")
+    @social_route
+    def api_presence_of(social: Social, me: int, username: str):
+        return jsonify({"peer_id": Calls(social).peer_of(me, username)})
+
     def _names(value: Any) -> list[str]:
         return [str(n) for n in value][:12] if isinstance(value, list) else []
 

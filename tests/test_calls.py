@@ -120,6 +120,15 @@ def test_presence_is_private(app):
     assert online["bbb"] is False  # strangers never see who's online
 
 
+def test_presence_lookup_only_for_connections(app):
+    a, b, c, d = square(app)
+    stranger = user(app, "stranger")
+    b.post("/api/presence", json={"peer_id": "bpeer-" + "q" * 20})
+    assert a.get("/api/presence/bbb").get_json()["peer_id"] == "bpeer-" + "q" * 20
+    assert a.get("/api/presence/ccc").status_code == 403   # a doesn't know c
+    assert stranger.get("/api/presence/bbb").status_code == 403
+
+
 def test_ice_servers(app, monkeypatch):
     a = user(app, "alice")
     monkeypatch.delenv("CF_TURN_KEY_ID", raising=False)

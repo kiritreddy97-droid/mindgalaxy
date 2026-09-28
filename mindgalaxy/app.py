@@ -35,12 +35,16 @@ from . import auth
 from .ai import MEDICAL, AIError, KnowledgeAI, QuotaError
 from .engine import build_galaxy
 from .calls import Calls
+from . import places as gplaces
 from .social import Media, Social, SocialError
 from .exporter import render_html
 from .storage import DEFAULT_DB_PATH, Storage
 
 LOGIN_TEMPLATE = Path(__file__).resolve().parent / "templates" / "login.html"
 AI_DAILY_LIMIT = int(os.environ.get("MINDGALAXY_AI_DAILY_LIMIT", "80"))
+# Google Places (ratings & reviews) -- kept inside Google's free monthly allowance
+PLACES_MONTHLY_CAP = int(os.environ.get("GOOGLE_PLACES_MONTHLY_CAP", "900"))
+PLACES_DAILY_PER_USER = int(os.environ.get("GOOGLE_PLACES_DAILY_PER_USER", "15"))
 MAX_ENTRY_CHARS = 2000
 MAX_PATH_DEPTH = 5
 # Bump when the linking rules change, so older thoughts get re-checked.
@@ -717,12 +721,50 @@ def create_app(
     def api_share(social: Social, me: int, entry_id: int):
         return jsonify(social.set_family_share(me, entry_id, bool(_body().get("family"))))
 
+    @app.post("/api/nearby")
+    @login_required
+    def api_nearby():
+        """Nearby places with Google ratings and reviews, when a key is set.
+        {"available": false} tells the page to use OpenStreetMap instead.
+        The location is used for this one search and never stored."""
+        key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+        if not key or not multi_user:
+            return jsonify({"available": False, "reason": "off"})
+        body = request.get_json(silent=True) or {}
+        query = str(body.get("query", "")).strip()[:80]
+        try:
+            lat, lon = round(float(body.get("lat")), 3), round(float(body.get("lon")), 3)
+        except (TypeError, ValueError):
+            return _error("A location is needed.", 400)
+        if not query or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return _error("A place to search for and a valid location are needed.", 400)
+        radius = 15000 if body.get("kind") == "vehicle" else 10000
+        who = str(g.uid)
+        now = _dt.datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        with _store() as store:
+            if store.count_events("places", "all", month_start) >= PLACES_MONTHLY_CAP:
+                return jsonify({"available": False, "reason": "monthly"})
+            if store.count_events("places", who, now - _dt.timedelta(days=1)) >= PLACES_DAILY_PER_USER:
+                return jsonify({"available": False, "reason": "daily"})
+            cached = f"{query.lower()}|{lat:.3f}|{lon:.3f}" in gplaces._cache
+            try:
+                found = gplaces.search(key, query, lat, lon, radius)
+            except gplaces.PlacesError as e:
+                app.logger.warning("%s", e)
+                return jsonify({"available": False, "reason": "error"})
+            if not cached:
+                store.log_event("places", "all")
+                store.log_event("places", who)
+        return jsonify({"available": True, "places": found})
+
     @app.get("/api/health")
     def health():
         # Says only *whether* the call relay is set up and answering -- never
         # any credential -- so it can be checked without signing in.
         relay = any("turn:" in str(s.get("urls")) for s in ice_servers())
-        return jsonify({"status": "ok", "ai": knowledge.enabled, "call_relay": relay})
+        return jsonify({"status": "ok", "ai": knowledge.enabled, "call_relay": relay,
+                        "places": bool(os.environ.get("GOOGLE_MAPS_API_KEY", "").strip())})
 
     return app
 

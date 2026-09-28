@@ -205,6 +205,31 @@ __THREE_JS_TAG__
   .kn-near a { color: var(--accent); text-decoration: none; }
   .kn-near .near-links { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; font-size: 12.5px; }
   .kn-near .near-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  .kn-near .g-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
+  .kn-near .g-tabs button { font: inherit; font-size: 11.5px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); }
+  .kn-near .g-tabs button.on { background: var(--accent); color: #0b0e21; border-color: var(--accent); font-weight: 600; }
+  .kn-near details.g-place { border-radius: 10px; background: rgba(255,255,255,0.04); margin-top: 6px; border: 1px solid transparent; }
+  .kn-near details.g-place[open] { border-color: var(--border); }
+  .kn-near details.g-place.best { border-color: rgba(255,210,122,0.55); }
+  .kn-near details.g-place summary { list-style: none; cursor: pointer; padding: 9px 10px; }
+  .kn-near details.g-place summary::-webkit-details-marker { display: none; }
+  .kn-near .g-name { font-size: 13px; font-weight: 600; color: #fff; display: flex; justify-content: space-between; gap: 8px; }
+  .kn-near .g-name .chev { color: var(--muted); font-weight: 400; }
+  .kn-near details[open] .g-name .chev { transform: rotate(90deg); }
+  .kn-near .g-rate { font-size: 12px; margin-top: 3px; color: #e4e6fa; }
+  .kn-near .g-stars { color: #ffc84a; letter-spacing: 1px; }
+  .kn-near .g-low { color: #ff9a9a; font-weight: 600; }
+  .kn-near .g-badge { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+  .kn-near .g-badge.best { background: #ffd27a; color: #0b0e21; }
+  .kn-near .g-badge.lowb { background: rgba(255,120,120,0.2); color: #ff9a9a; }
+  .kn-near .g-body { padding: 0 10px 10px; }
+  .kn-near .g-body .m { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .kn-near .g-body .a { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0 4px; font-size: 12px; }
+  .kn-near .g-rev { border-top: 1px solid var(--border); padding: 8px 0 2px; font-size: 12px; line-height: 1.5; color: #d7d9f2; }
+  .kn-near .g-rev.worst { background: rgba(255,120,120,0.06); border-radius: 8px; padding: 8px; margin-top: 6px; border-top: none; }
+  .kn-near .g-rev .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .kn-near .g-attr { font-size: 10.5px; color: var(--muted); margin-top: 8px; }
   .kn-video { display: inline-block; margin-top: 8px; font-size: 12.5px; font-weight: 600; color: #ff8a8a; text-decoration: none; }
   .kn-hospital .cta { display: inline-block; margin-top: 9px; font-size: 12.5px; font-weight: 600; color: #0b0e21; background: var(--gold); padding: 6px 12px; border-radius: 8px; text-decoration: none; }
 
@@ -1921,6 +1946,102 @@ __UNIVERSE_TAG__
         list.appendChild(it);
       });
     }
+
+    // ---- Google ratings & reviews (when the site has a Google key) ----
+    function googleQuery(about) {
+      if (about.kind === "health") return about.spec ? about.spec[2] : "hospital clinic";
+      if (about.kind === "food") return about.subject + " restaurant";
+      if (about.kind === "vehicle") return about.subject + " showroom";
+      return about.subject + " store";
+    }
+    async function googleNearby(about, at) {
+      try {
+        const r = await fetch("/api/nearby", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: about.kind, query: googleQuery(about), lat: at.lat, lon: at.lon }) });
+        if (!r.ok) return null;
+        const j = await r.json();
+        return j.available ? j.places : null;
+      } catch (e) { return null; }
+    }
+    const starText = r => { const n = Math.round(r || 0); return "★".repeat(n) + "☆".repeat(5 - n); };
+    // "best" weighs the rating by how many people rated it: 4.9 from 7 people
+    // shouldn't beat 4.6 from 2,000
+    const bestScore = p => p.rating ? (p.rating * p.count + 4.0 * 20) / (p.count + 20) : 0;
+    function renderGoogle(about, places, list) {
+      list.innerHTML = "";
+      if (!places.length) { list.appendChild(el("div", "near-intro", "Google found nothing close by — try the map links below.")); return; }
+      const tabs = el("div", "g-tabs");
+      const box = el("div");
+      const orders = [
+        ["⭐ Best rated", ps => ps.slice().sort((a, b) => bestScore(b) - bestScore(a) || a.km - b.km)],
+        ["📍 Nearest", ps => ps.slice().sort((a, b) => a.km - b.km)],
+        ["⚠ Lowest rated", ps => ps.filter(p => p.rating).sort((a, b) => a.rating - b.rating || b.count - a.count)],
+      ];
+      const bestName = orders[0][1](places)[0].name;
+      const draw = (k) => {
+        [...tabs.children].forEach((b, j) => b.classList.toggle("on", j === k));
+        box.innerHTML = "";
+        orders[k][1](places).forEach((p, idx) => box.appendChild(googlePlace(p, p.name === bestName && p.rating)));
+      };
+      orders.forEach(([label], k) => { const b = el("button", null, label); b.type = "button"; b.addEventListener("click", () => draw(k)); tabs.appendChild(b); });
+      list.appendChild(tabs);
+      list.appendChild(box);
+      draw(0);
+      list.appendChild(el("div", "g-attr", "Ratings and reviews from Google Maps. Tap a place to read its reviews — the good and the bad."));
+    }
+    function googlePlace(p, isBest) {
+      const d = document.createElement("details");
+      d.className = "g-place" + (isBest ? " best" : "");
+      const sum = document.createElement("summary");
+      const name = el("div", "g-name");
+      const left = el("span", null, p.name);
+      if (isBest) left.appendChild(el("span", "g-badge best", "🏆 Best nearby"));
+      if (p.rating && p.rating < 3) left.appendChild(el("span", "g-badge lowb", "Low rated"));
+      name.append(left, el("span", "chev", "›"));
+      sum.appendChild(name);
+      const rate = el("div", "g-rate");
+      if (p.rating) {
+        rate.appendChild(el("span", "g-stars", starText(p.rating)));
+        rate.appendChild(el("span", p.rating < 3 ? "g-low" : null, ` ${p.rating.toFixed(1)}`));
+        rate.appendChild(document.createTextNode(` (${p.count.toLocaleString()}) · `));
+      } else {
+        rate.appendChild(document.createTextNode("No ratings yet · "));
+      }
+      rate.appendChild(document.createTextNode([p.km < 1 ? Math.round(p.km * 1000) + " m" : p.km.toFixed(1) + " km",
+        p.open_now === true ? "🟢 Open now" : p.open_now === false ? "🔴 Closed now" : ""].filter(Boolean).join(" · ")));
+      sum.appendChild(rate);
+      d.appendChild(sum);
+      const body = el("div", "g-body");
+      if (p.type || p.address) body.appendChild(el("div", "m", [p.type, p.address].filter(Boolean).join(" · ")));
+      const acts = el("div", "a");
+      const link = (t, u) => { const a = el("a", null, t); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer"; acts.appendChild(a); };
+      if (/^https:\/\//.test(p.maps_url)) link("Open in Google Maps →", p.maps_url);
+      link("Directions →", `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`);
+      if (p.phone) { const c = el("a", null, "📞 " + p.phone); c.href = "tel:" + p.phone.replace(/[^+\d]/g, ""); acts.appendChild(c); }
+      if (/^https?:\/\//i.test(p.website)) link("Website", p.website);
+      body.appendChild(acts);
+      const revs = (p.reviews || []).slice();
+      if (revs.length) {
+        const worst = revs.reduce((w, r) => (r.rating < w.rating ? r : w), revs[0]);
+        // lowest review first when it's a bad one, so the warning is never hidden
+        revs.sort((a, b) => (b === worst && worst.rating <= 2) - (a === worst && worst.rating <= 2));
+        revs.forEach(r => {
+          const rv = el("div", "g-rev" + (r === worst && r.rating <= 2 ? " worst" : ""));
+          const who = el("div", "who");
+          who.appendChild(el("span", "g-stars", starText(r.rating) + " "));
+          if (/^https:\/\//.test(r.author_url)) { const a = el("a", null, r.author); a.href = r.author_url; a.target = "_blank"; a.rel = "noopener noreferrer"; who.appendChild(a); }
+          else who.appendChild(document.createTextNode(r.author));
+          who.appendChild(document.createTextNode(" · " + r.when + (r === worst && r.rating <= 2 ? " · ⚠ lowest review" : "")));
+          rv.appendChild(who);
+          rv.appendChild(el("div", null, r.text || "(rating only, no text)"));
+          body.appendChild(rv);
+        });
+      } else {
+        body.appendChild(el("div", "m", "No written reviews yet."));
+      }
+      d.appendChild(body);
+      return d;
+    }
     async function renderNearby(star, i) {
       const about = nearAbout(star);
       if (!about || MODE !== "server") return;
@@ -1932,7 +2053,7 @@ __UNIVERSE_TAG__
       const list = el("div");
       sec.appendChild(list);
       nearLinks(about, sec);
-      sec.appendChild(el("div", "near-note", "Places from OpenStreetMap. Your location is only used in your browser to search nearby — it isn't saved or sent to Galactic Connections." +
+      sec.appendChild(el("div", "near-note", "Places from Google Maps or OpenStreetMap. Your location is used only for this search and is never saved." +
         (about.kind === "health" ? " In an emergency, call your local emergency number." : "")));
       document.getElementById("detail-links").prepend(sec);
       const load = async () => {
@@ -1941,6 +2062,8 @@ __UNIVERSE_TAG__
         const spin = el("span", "spinner-sm"); head.appendChild(spin);
         try {
           const at = await locate();
+          const rated = await googleNearby(about, at);
+          if (rated) { if (selected === i) renderGoogle(about, rated, list); else list.innerHTML = ""; return; }
           const places = await findNearby(about, at);
           if (selected === i) renderPlaces(about, places, list);
           else list.innerHTML = "";
